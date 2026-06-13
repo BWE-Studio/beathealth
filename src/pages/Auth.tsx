@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable";
+// import { lovable } from "@/integrations/lovable";
 import { toast } from "sonner";
 import { Logo } from "@/components/Logo";
 import { ArrowRight, Loader2, Mail, ArrowLeft, Sparkles } from "lucide-react";
@@ -80,8 +80,9 @@ const Auth = () => {
         toast.success(language === "hi" ? "खाता बन गया!" : "Account created! Logging you in...");
         navigate("/app/home");
       }
-    } catch (error: any) {
-      toast.error(error.message || (language === "hi" ? "प्रमाणीकरण विफल" : "Authentication failed"));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : language === "hi" ? "प्रमाणीकरण विफल": "Authentication failed";
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -109,8 +110,9 @@ const Auth = () => {
       if (error) throw error;
       setMagicLinkSent(true);
       toast.success(language === "hi" ? "मैजिक लिंक भेजा गया!" : "Magic link sent! Check your email.");
-    } catch (error: any) {
-      toast.error(error.message || (language === "hi" ? "लिंक भेजने में विफल" : "Failed to send magic link"));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : language === "hi" ?  "लिंक भेजने में विफल" : "Failed to send magic link"
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -135,8 +137,9 @@ const Auth = () => {
       if (error) throw error;
       setResetSent(true);
       toast.success(language === "hi" ? "रीसेट लिंक भेजा गया!" : "Reset link sent! Check your email.");
-    } catch (error: any) {
-      toast.error(error.message || (language === "hi" ? "रीसेट लिंक भेजने में विफल" : "Failed to send reset link"));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : (language === "hi" ? "रीसेट लिंक भेजने में विफल" : "Failed to send reset link")
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -145,12 +148,16 @@ const Auth = () => {
   const handleGoogleSignIn = async () => {
     setLoading(true);
     try {
-      const { error } = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: window.location.origin,
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/app/home`,
+        },
       });
       if (error) throw error;
-    } catch (error: any) {
-      toast.error(error.message || (language === "hi" ? "Google साइन-इन विफल" : "Google sign-in failed"));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : language === "hi" ? "Google साइन-इन विफल" : "Google sign-in failed";
+      toast.error(message);
       setLoading(false);
     }
   };
