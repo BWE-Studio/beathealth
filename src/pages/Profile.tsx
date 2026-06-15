@@ -247,25 +247,32 @@ const Profile = () => {
 
   const handleDeleteAccount = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-      // Delete all user data
-      await Promise.all([
-        supabase.from("bp_logs").delete().eq("user_id", user.id),
-        supabase.from("sugar_logs").delete().eq("user_id", user.id),
-        supabase.from("behavior_logs").delete().eq("user_id", user.id),
-        supabase.from("medications").delete().eq("user_id", user.id),
-        supabase.from("streaks").delete().eq("user_id", user.id),
-        supabase.from("achievements").delete().eq("user_id", user.id),
-        supabase.from("profiles").delete().eq("id", user.id),
-      ]);
+      if (!session) {
+        toast.error("No active session found");
+        return;
+      }
+
+      const { error } = await supabase.functions.invoke(
+        "delete-user",
+        {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        }
+      );
+
+      if (error) throw error;
 
       await supabase.auth.signOut();
-      toast.success("Account deleted. We're sorry to see you go.");
+
+      toast.success("Account deleted successfully");
       navigate("/");
     } catch (error) {
-      console.error("Error deleting account:", error);
+      console.error("Delete account error:", error);
       toast.error("Failed to delete account");
     }
   };

@@ -54,12 +54,13 @@ const Onboarding = () => {
       // Update profile
       const { error } = await supabase
         .from("profiles")
-        .update({
+        .upsert({
+          id: user.id,
+          email: user.email,
           ...formData,
           onboarding_completed: true,
-          language: language,
-        })
-        .eq("id", user.id);
+          language,
+        });
 
       if (error) throw error;
 
