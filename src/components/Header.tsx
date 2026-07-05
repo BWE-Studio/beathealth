@@ -187,7 +187,8 @@ export const Header = () => {
     .toUpperCase() || "U";
 
   return (
-    <header className="border-b bg-card/95 backdrop-blur-md shadow-sm sticky top-0 z-10 transition-all">
+    <header className="border-b bg-card/95 backdrop-blur-md shadow-sm sticky top-0 z-10 transition-all" 
+            style={{ paddingTop: "env(safe-area-inset-top)" }} >
       <div className="container mx-auto px-4 py-3 md:py-4 flex items-center justify-between">
         <Logo size="md" />
         

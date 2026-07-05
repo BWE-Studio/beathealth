@@ -11,9 +11,10 @@ export const LandingNav = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   return (
-    <nav className="fixed w-full z-50 top-0 bg-landing-bg/80 backdrop-blur-xl border-b border-landing-border/50">
+    <nav className="fixed w-full z-50 top-0 bg-landing-bg/80 backdrop-blur-xl border-b border-landing-border/50"
+        style={{ paddingTop: "env(safe-area-inset-top)" }}>
       <div className="max-w-7xl mx-auto px-6">
-        <div className="flex justify-between items-center h-16">
+        <div className="flex justify-between items-center h-20">
           {/* Logo */}
           <Logo size="sm" showText={true} />
 
