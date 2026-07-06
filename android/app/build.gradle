@@ -6,10 +6,10 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 android {
-    namespace "app.beathealth"
+    namespace "com.beat.bwe"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "app.beathealth"
+        applicationId "com.beat.bwe"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

@@ -1,4 +1,4 @@
-package app.beathealth;
+package com.beat.bwe;
 
 import com.getcapacitor.BridgeActivity;
 
