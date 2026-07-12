@@ -7,7 +7,6 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { logRuntimeObject } from "@/lib/runtimeDebug";
 import { 
   Users, 
   TrendingUp, 
@@ -62,15 +61,10 @@ const Admin = () => {
 
   const fetchDashboardData = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      console.log("[Admin] AUTH USER:", user);
-
       // Fetch user count
       const totalUsersRes = await supabase
         .from("profiles")
         .select("*", { count: "exact", head: true });
-      logRuntimeObject("[Admin] PROFILES COUNT RESPONSE", totalUsersRes);
-      logRuntimeObject("[Admin] PROFILES COUNT ERROR", totalUsersRes.error);
       const { count: totalUsers } = totalUsersRes;
 
       // Fetch users created in last 7 days
@@ -80,8 +74,6 @@ const Admin = () => {
         .from("profiles")
         .select("*", { count: "exact", head: true })
         .gte("created_at", weekAgo.toISOString());
-      logRuntimeObject("[Admin] NEW USERS RESPONSE", newUsersRes);
-      logRuntimeObject("[Admin] NEW USERS ERROR", newUsersRes.error);
       const { count: newUsers } = newUsersRes;
 
       // Fetch active streaks
@@ -110,10 +102,6 @@ const Admin = () => {
         .select("id, email, full_name, created_at, onboarding_completed")
         .order("created_at", { ascending: false })
         .limit(50);
-      logRuntimeObject("[Admin] PROFILE RESPONSE", usersRes);
-      logRuntimeObject("[Admin] PROFILE DATA", usersRes.data);
-      logRuntimeObject("[Admin] PROFILE ERROR", usersRes.error);
-      logRuntimeObject("[Admin] PROFILE STATE AFTER SET", usersRes.data);
       const { data: usersData } = usersRes;
 
       setUsers(usersData || []);

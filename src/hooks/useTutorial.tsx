@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { logProfileDebug } from "@/lib/runtimeDebug";
 
 export const useTutorial = () => {
   const { user, loading: authLoading } = useAuth();
@@ -22,15 +21,11 @@ export const useTutorial = () => {
 
   const checkTutorialStatus = async (userId: string) => {
     try {
-      console.log("[useTutorial] AUTH USER:", user);
       const { data, error } = await supabase
         .from("profiles")
         .select("tutorial_completed, tutorial_step")
         .eq("id", userId)
         .single();
-
-      const profileRes = { data, error };
-      logProfileDebug("useTutorial.checkTutorialStatus", user, profileRes);
 
       if (error) throw error;
 

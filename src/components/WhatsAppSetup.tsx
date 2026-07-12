@@ -11,7 +11,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { logProfileDebug } from "@/lib/runtimeDebug";
 
 export const WhatsAppSetup = () => {
   const { language } = useLanguage();
@@ -25,14 +24,12 @@ export const WhatsAppSetup = () => {
     queryKey: ["profile-phone", user?.id],
     queryFn: async () => {
       if (!user?.id) return null;
-      console.log("[WhatsAppSetup] AUTH USER:", user);
-      const profileRes = await supabase
+      const { data } = await supabase
         .from("profiles")
         .select("phone")
         .eq("id", user.id)
         .single();
-      logProfileDebug("WhatsAppSetup.profilePhoneQuery", user, profileRes);
-      return profileRes.data;
+      return data;
     },
     enabled: !!user?.id,
   });

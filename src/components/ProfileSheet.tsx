@@ -15,7 +15,6 @@ import { toast } from "sonner";
 import { haptic } from "@/lib/haptics";
 import { useTheme } from "@/components/ThemeProvider";
 import { Switch } from "@/components/ui/switch";
-import { logProfileDebug } from "@/lib/runtimeDebug";
 
 interface ProfileSheetProps {
   isOpen: boolean;
@@ -32,14 +31,11 @@ export const ProfileSheet = ({ isOpen, onClose }: ProfileSheetProps) => {
     queryKey: ["profile", user?.id],
     queryFn: async () => {
       if (!user?.id) return null;
-      console.log("[ProfileSheet] AUTH USER:", user);
-      const profileRes = await supabase
+      const { data } = await supabase
         .from("profiles")
         .select("*")
         .eq("id", user.id)
         .single();
-      logProfileDebug("ProfileSheet.profileQuery", user, profileRes);
-      const { data } = profileRes;
       return data;
     },
     enabled: !!user?.id && isOpen,

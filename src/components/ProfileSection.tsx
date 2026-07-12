@@ -8,7 +8,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { FitnessTrackerConnection } from "./FitnessTrackerConnection";
 import { useAuth } from "@/hooks/useAuth";
-import { logProfileDebug, logRuntimeObject } from "@/lib/runtimeDebug";
 import {
   Dialog,
   DialogContent,
@@ -26,14 +25,11 @@ export const ProfileSection = () => {
   useEffect(() => {
     if (authLoading) return;
     if (!user?.id) {
-      console.log("[ProfileSection] AUTH USER:", user);
-      console.log("[ProfileSection] fetch skipped: no authenticated user id");
       setLoading(false);
       setProfile(null);
       return;
     }
 
-    console.log("[ProfileSection] AUTH USER:", user);
     fetchProfile(user.id);
   }, [authLoading, user?.id]);
 
@@ -45,12 +41,8 @@ export const ProfileSection = () => {
         .eq("id", userId)
         .single();
 
-      const profileRes = { data, error };
-      logProfileDebug("ProfileSection.fetchProfile", user, profileRes);
-
       if (error) throw error;
       setProfile(data);
-      logRuntimeObject("[ProfileSection] PROFILE STATE AFTER SET", data);
     } catch (error) {
       console.error("Error fetching profile:", error);
     } finally {
@@ -83,9 +75,6 @@ export const ProfileSection = () => {
     .map((n: string) => n[0])
     .join("")
     .toUpperCase() || "U";
-
-  logRuntimeObject("[ProfileSection] RENDER PROFILE", profile);
-  console.log("[ProfileSection] RENDER INITIALS:", initials);
 
   return (
     <Card className="p-4 md:p-6 mb-6 bg-gradient-to-r from-background to-muted/20">

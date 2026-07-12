@@ -26,7 +26,6 @@ import { ActivityTracker } from "@/components/ActivityTracker";
 import { useNavigate } from "react-router-dom";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/useAuth";
-import { logProfileDebug } from "@/lib/runtimeDebug";
 
 const Dashboard = () => {
   const { t } = useLanguage();
@@ -47,10 +46,7 @@ const Dashboard = () => {
     queryKey: ["profile", user?.id],
     queryFn: async () => {
       if (!user?.id) return null;
-      console.log("[Dashboard] AUTH USER:", user);
-      const profileRes = await supabase.from("profiles").select("full_name").eq("id", user.id).single();
-      logProfileDebug("Dashboard.profileQuery", user, profileRes);
-      const { data } = profileRes;
+      const { data } = await supabase.from("profiles").select("full_name").eq("id", user.id).single();
       return data;
     },
     enabled: !!user?.id,

@@ -33,7 +33,6 @@ import { AppointmentManager } from "@/components/AppointmentManager";
 import { ReferralProgram } from "@/components/ReferralProgram";
 import { WhatsAppSetup } from "@/components/WhatsAppSetup";
 import { useAuth } from "@/hooks/useAuth";
-import { logProfileDebug, logRuntimeObject } from "@/lib/runtimeDebug";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -84,13 +83,10 @@ const Profile = () => {
   useEffect(() => {
     if (authLoading) return;
     if (!user?.id) {
-      console.log("[Profile] AUTH USER:", user);
-      console.log("[Profile] fetch skipped: no authenticated user id");
       setLoading(false);
       return;
     }
 
-    console.log("[Profile] AUTH USER:", user);
     fetchData(user.id);
   }, [authLoading, user?.id]);
 
@@ -101,11 +97,8 @@ const Profile = () => {
         supabase.from("notification_preferences").select("*").eq("user_id", userId).maybeSingle(),
       ]);
 
-      logProfileDebug("Profile.fetchData", user, profileRes);
-
       if (profileRes.data) {
         setProfile(profileRes.data);
-        logRuntimeObject("[Profile] PROFILE STATE AFTER SET", profileRes.data);
         setFormData({
           full_name: profileRes.data.full_name || "",
           email: profileRes.data.email || "",
@@ -223,7 +216,6 @@ const Profile = () => {
   const handleExportData = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      console.log("[Profile export] AUTH USER:", user);
       if (!user) return;
 
       const [profileData, bpLogs, sugarLogs, behaviorLogs, medications] = await Promise.all([
@@ -233,9 +225,6 @@ const Profile = () => {
         supabase.from("behavior_logs").select("*").eq("user_id", user.id),
         supabase.from("medications").select("*").eq("user_id", user.id),
       ]);
-
-      logProfileDebug("[Profile export]", user, profileData);
-      logRuntimeObject("[Profile export] PROFILE STATE AFTER SET", profileData.data);
 
       const exportData = {
         exported_at: new Date().toISOString(),
@@ -298,10 +287,6 @@ const Profile = () => {
     .map((n: string) => n[0])
     .join("")
     .toUpperCase() || "U";
-
-  logRuntimeObject("[Profile] RENDER PROFILE", profile);
-  logRuntimeObject("[Profile] RENDER FORM DATA", formData);
-  console.log("[Profile] RENDER INITIALS:", initials);
 
   if (loading) {
     return (

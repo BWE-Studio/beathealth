@@ -36,7 +36,6 @@ import {
 import { FitnessTrackerConnection } from "@/components/FitnessTrackerConnection";
 import { AlertsDrawer } from "@/components/AlertsDrawer";
 import { useAuth } from "@/hooks/useAuth";
-import { logProfileDebug, logRuntimeObject } from "@/lib/runtimeDebug";
 import {
   Dialog,
   DialogContent,
@@ -65,13 +64,10 @@ export const Header = () => {
   useEffect(() => {
     if (authLoading) return;
     if (!user?.id) {
-      console.log("[Header] AUTH USER:", user);
-      console.log("[Header] fetch skipped: no authenticated user id");
       setProfile(null);
       return;
     }
 
-    console.log("[Header] AUTH USER:", user);
     fetchProfile(user.id);
   }, [authLoading, user?.id]);
 
@@ -85,12 +81,8 @@ export const Header = () => {
         .eq("id", userId)
         .single();
 
-      const profileRes = { data, error };
-      logProfileDebug("Header.fetchProfile", user, profileRes);
-
       if (error) throw error;
       setProfile(data);
-      logRuntimeObject("[Header] PROFILE STATE AFTER SET", data);
       setEditForm({
         full_name: data?.full_name || "",
         weight_kg: data?.weight_kg?.toString() || "",
@@ -200,9 +192,6 @@ export const Header = () => {
     .map((n: string) => n[0])
     .join("")
     .toUpperCase() || "U";
-
-  logRuntimeObject("[Header] RENDER PROFILE", profile);
-  console.log("[Header] RENDER INITIALS:", initials);
 
   return (
     <header className="border-b bg-card/95 backdrop-blur-md shadow-sm sticky top-0 z-10 transition-all" 
