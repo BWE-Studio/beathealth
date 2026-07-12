@@ -204,7 +204,7 @@ const Profile = () => {
         supabase.from("notification_preferences").upsert({
           user_id: user.id,
           ...notificationSettings,
-        }),
+        }, { onConflict: "user_id" }),
       ]);
 
       if (profileUpdate.error) throw profileUpdate.error;
