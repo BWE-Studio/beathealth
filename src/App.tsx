@@ -13,6 +13,7 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider } from "@/hooks/useAuth";
 import { lazy, Suspense } from "react";
+import RootRedirect from "@/components/RootRedirect";
 
 // Lazy load pages
 const Landing = lazy(() => import("./pages/Landing"));
@@ -102,7 +103,7 @@ const AppContent = () => {
       <Suspense fallback={<LoadingFallback />}>
         <PageTransition key={location.pathname}>
           <Routes location={location}>
-            <Route path="/" element={<Landing />} />
+            <Route path="/" element={<RootRedirect />} />
             <Route path="/about" element={<About />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />
