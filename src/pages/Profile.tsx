@@ -64,6 +64,7 @@ const Profile = () => {
     weight_kg: "",
     height_cm: "",
     date_of_birth: "",
+    gender: "",
     has_diabetes: false,
     has_hypertension: false,
     has_heart_disease: false,
@@ -106,6 +107,7 @@ const Profile = () => {
           weight_kg: profileRes.data.weight_kg?.toString() || "",
           height_cm: profileRes.data.height_cm?.toString() || "",
           date_of_birth: profileRes.data.date_of_birth || "",
+          gender: profileRes.data.gender || "",
           has_diabetes: profileRes.data.has_diabetes || false,
           has_hypertension: profileRes.data.has_hypertension || false,
           has_heart_disease: profileRes.data.has_heart_disease || false,
@@ -182,13 +184,14 @@ const Profile = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      await Promise.all([
+      const [profileUpdate, notificationUpdate] = await Promise.all([
         supabase.from("profiles").update({
           full_name: formData.full_name || null,
           phone: formData.phone || null,
           weight_kg: formData.weight_kg ? parseFloat(formData.weight_kg) : null,
           height_cm: formData.height_cm ? parseInt(formData.height_cm) : null,
           date_of_birth: formData.date_of_birth || null,
+          gender: formData.gender || null,
           has_diabetes: formData.has_diabetes,
           has_hypertension: formData.has_hypertension,
           has_heart_disease: formData.has_heart_disease,
@@ -204,7 +207,11 @@ const Profile = () => {
         }),
       ]);
 
+      if (profileUpdate.error) throw profileUpdate.error;
+      if (notificationUpdate.error) throw notificationUpdate.error;
+
       toast.success("Profile saved successfully");
+      fetchData(user.id);
     } catch (error) {
       console.error("Error saving profile:", error);
       toast.error("Failed to save profile");
@@ -384,7 +391,7 @@ const Profile = () => {
               </div>
             </div>
 
-            <div className="grid md:grid-cols-3 gap-4">
+            <div className="grid md:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="weight_kg">Weight (kg)</Label>
                 <Input
@@ -413,6 +420,21 @@ const Profile = () => {
                   value={formData.date_of_birth}
                   onChange={(e) => setFormData({ ...formData, date_of_birth: e.target.value })}
                 />
+              </div>
+              <div>
+                <Label htmlFor="gender">Gender</Label>
+                <select
+                  id="gender"
+                  value={formData.gender}
+                  onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
+                  className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
+                >
+                  <option value="">Prefer not to say</option>
+                  <option value="female">Female</option>
+                  <option value="male">Male</option>
+                  <option value="non_binary">Non-binary</option>
+                  <option value="other">Other</option>
+                </select>
               </div>
             </div>
 

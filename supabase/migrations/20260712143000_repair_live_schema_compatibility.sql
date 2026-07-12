@@ -5,7 +5,10 @@
 -- Profile ritual preferences used by medication reminders and onboarding.
 ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS morning_ritual_time TIME DEFAULT '08:00',
-  ADD COLUMN IF NOT EXISTS evening_ritual_time TIME DEFAULT '20:00';
+  ADD COLUMN IF NOT EXISTS evening_ritual_time TIME DEFAULT '20:00',
+  ADD COLUMN IF NOT EXISTS has_diabetes BOOLEAN DEFAULT false,
+  ADD COLUMN IF NOT EXISTS has_hypertension BOOLEAN DEFAULT false,
+  ADD COLUMN IF NOT EXISTS has_heart_disease BOOLEAN DEFAULT false;
 
 -- BP logs: current app/edge functions use measured_at, heart_rate, ritual_type.
 ALTER TABLE public.bp_logs
