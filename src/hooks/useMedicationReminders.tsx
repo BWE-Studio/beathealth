@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useMedications } from "./useMedications";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { logProfileDebug } from "@/lib/runtimeDebug";
 
 export const useMedicationReminders = () => {
   const { medications } = useMedications();
@@ -11,16 +12,19 @@ export const useMedicationReminders = () => {
     queryKey: ["profile-ritual-times"],
     queryFn: async () => {
       const { data: { user } } = await supabase.auth.getUser();
+      console.log("[useMedicationReminders] AUTH USER:", user);
       if (!user) return null;
 
-      const { data, error } = await supabase
+      const profileRes = await supabase
         .from("profiles")
         .select("morning_ritual_time, evening_ritual_time")
         .eq("id", user.id)
         .single();
 
-      if (error) throw error;
-      return data;
+      logProfileDebug("useMedicationReminders.profileQuery", user, profileRes);
+
+      if (profileRes.error) throw profileRes.error;
+      return profileRes.data;
     },
   });
 

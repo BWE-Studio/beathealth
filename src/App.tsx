@@ -14,6 +14,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider } from "@/hooks/useAuth";
 import { lazy, Suspense } from "react";
 import RootRedirect from "@/components/RootRedirect";
+import { NativeAuthRedirectHandler } from "@/components/NativeAuthRedirectHandler";
 
 // Lazy load pages
 const Landing = lazy(() => import("./pages/Landing"));
@@ -159,6 +160,7 @@ const App = () => (
             <PWAInstallPrompt />
             <BrowserRouter>
               <AuthProvider>
+                <NativeAuthRedirectHandler />
                 <AppContent />
               </AuthProvider>
             </BrowserRouter>

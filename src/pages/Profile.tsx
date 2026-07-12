@@ -32,6 +32,8 @@ import { LabTestTracker } from "@/components/LabTestTracker";
 import { AppointmentManager } from "@/components/AppointmentManager";
 import { ReferralProgram } from "@/components/ReferralProgram";
 import { WhatsAppSetup } from "@/components/WhatsAppSetup";
+import { useAuth } from "@/hooks/useAuth";
+import { logProfileDebug, logRuntimeObject } from "@/lib/runtimeDebug";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -46,6 +48,7 @@ import {
 
 const Profile = () => {
   const navigate = useNavigate();
+  const { user, loading: authLoading } = useAuth();
   const { subscription, isPremium, createCheckout, isCreatingCheckout } = useSubscription();
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -79,21 +82,30 @@ const Profile = () => {
   });
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (authLoading) return;
+    if (!user?.id) {
+      console.log("[Profile] AUTH USER:", user);
+      console.log("[Profile] fetch skipped: no authenticated user id");
+      setLoading(false);
+      return;
+    }
 
-  const fetchData = async () => {
+    console.log("[Profile] AUTH USER:", user);
+    fetchData(user.id);
+  }, [authLoading, user?.id]);
+
+  const fetchData = async (userId: string) => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
       const [profileRes, notifRes] = await Promise.all([
-        supabase.from("profiles").select("*").eq("id", user.id).single(),
-        supabase.from("notification_preferences").select("*").eq("user_id", user.id).maybeSingle(),
+        supabase.from("profiles").select("*").eq("id", userId).single(),
+        supabase.from("notification_preferences").select("*").eq("user_id", userId).maybeSingle(),
       ]);
+
+      logProfileDebug("Profile.fetchData", user, profileRes);
 
       if (profileRes.data) {
         setProfile(profileRes.data);
+        logRuntimeObject("[Profile] PROFILE STATE AFTER SET", profileRes.data);
         setFormData({
           full_name: profileRes.data.full_name || "",
           email: profileRes.data.email || "",
@@ -162,7 +174,7 @@ const Profile = () => {
         .eq('id', user.id);
 
       toast.success("Profile photo updated");
-      fetchData();
+      fetchData(user.id);
     } catch (error) {
       console.error("Error uploading avatar:", error);
       toast.error("Failed to upload photo");
@@ -211,6 +223,7 @@ const Profile = () => {
   const handleExportData = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      console.log("[Profile export] AUTH USER:", user);
       if (!user) return;
 
       const [profileData, bpLogs, sugarLogs, behaviorLogs, medications] = await Promise.all([
@@ -220,6 +233,9 @@ const Profile = () => {
         supabase.from("behavior_logs").select("*").eq("user_id", user.id),
         supabase.from("medications").select("*").eq("user_id", user.id),
       ]);
+
+      logProfileDebug("[Profile export]", user, profileData);
+      logRuntimeObject("[Profile export] PROFILE STATE AFTER SET", profileData.data);
 
       const exportData = {
         exported_at: new Date().toISOString(),
@@ -282,6 +298,10 @@ const Profile = () => {
     .map((n: string) => n[0])
     .join("")
     .toUpperCase() || "U";
+
+  logRuntimeObject("[Profile] RENDER PROFILE", profile);
+  logRuntimeObject("[Profile] RENDER FORM DATA", formData);
+  console.log("[Profile] RENDER INITIALS:", initials);
 
   if (loading) {
     return (

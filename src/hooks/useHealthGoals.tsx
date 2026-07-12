@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { logProfileDebug } from "@/lib/runtimeDebug";
 
 export interface HealthGoal {
   id: string;
@@ -52,14 +53,17 @@ export const useHealthGoals = (userId?: string) => {
         }
       } else if (goalType === 'weight_loss') {
         // Get current weight from profile
-        const { data } = await supabase
+        console.log("[useHealthGoals] AUTH USER:", { id: targetUserId });
+        const profileRes = await supabase
           .from('profiles')
           .select('weight_kg')
           .eq('id', targetUserId)
           .single();
+
+        logProfileDebug("useHealthGoals.weightProfileQuery", { id: targetUserId }, profileRes);
         
-        if (data?.weight_kg) {
-          currentValue = data.weight_kg;
+        if (profileRes.data?.weight_kg) {
+          currentValue = profileRes.data.weight_kg;
         }
       } else if (goalType === 'step_count') {
         // Get today's step count

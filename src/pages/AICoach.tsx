@@ -30,6 +30,7 @@ import { VoiceStateIndicator, VoiceStateBadge } from "@/components/VoiceStateInd
 import { SpeakButton } from "@/components/VoiceOutput";
 import { ChatImageCapture } from "@/components/ChatImageCapture";
 import { cn } from "@/lib/utils";
+import { logProfileDebug } from "@/lib/runtimeDebug";
 
 interface Message {
   role: "user" | "assistant";
@@ -92,7 +93,10 @@ const AICoach = () => {
     queryKey: ["profile", user?.id],
     queryFn: async () => {
       if (!user?.id) return null;
-      const { data } = await supabase.from("profiles").select("full_name").eq("id", user.id).single();
+      console.log("[AICoach] AUTH USER:", user);
+      const profileRes = await supabase.from("profiles").select("full_name").eq("id", user.id).single();
+      logProfileDebug("AICoach.profileQuery", user, profileRes);
+      const { data } = profileRes;
       return data;
     },
     enabled: !!user?.id,

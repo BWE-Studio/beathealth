@@ -25,12 +25,14 @@ import { CognitiveCheckIn } from "@/components/CognitiveCheckIn";
 import { ActivityTracker } from "@/components/ActivityTracker";
 import { useNavigate } from "react-router-dom";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { useAuth } from "@/hooks/useAuth";
+import { logProfileDebug } from "@/lib/runtimeDebug";
 
 const Dashboard = () => {
   const { t } = useLanguage();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [user, setUser] = useState<any>(null);
+  const { user } = useAuth();
   const { mainStreakCount, isLoading: streaksLoading } = useStreaks();
   const { achievements } = useAchievements();
   const [showCelebration, setShowCelebration] = useState(false);
@@ -45,7 +47,10 @@ const Dashboard = () => {
     queryKey: ["profile", user?.id],
     queryFn: async () => {
       if (!user?.id) return null;
-      const { data } = await supabase.from("profiles").select("full_name").eq("id", user.id).single();
+      console.log("[Dashboard] AUTH USER:", user);
+      const profileRes = await supabase.from("profiles").select("full_name").eq("id", user.id).single();
+      logProfileDebug("Dashboard.profileQuery", user, profileRes);
+      const { data } = profileRes;
       return data;
     },
     enabled: !!user?.id,
@@ -119,13 +124,6 @@ const Dashboard = () => {
     },
     enabled: !!user?.id,
   });
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) setUser(session.user);
-      else navigate("/auth");
-    });
-  }, [navigate]);
 
   // Real-time subscription for ritual updates
   useEffect(() => {

@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
+import { getAuthRedirectUrl, isNativePlatform, openNativeOAuthUrl } from "@/lib/nativeAuth";
 // import { lovable } from "@/integrations/lovable";
 import { toast } from "sonner";
 import { Logo } from "@/components/Logo";
@@ -74,7 +75,7 @@ const Auth = () => {
         const { error } = await supabase.auth.signUp({
           email: emailValidation.data,
           password: passwordValidation.data,
-          options: { emailRedirectTo: `${window.location.origin}/app/home` },
+          options: { emailRedirectTo: getAuthRedirectUrl("/app/home") },
         });
         if (error) throw error;
         toast.success(language === "hi" ? "खाता बन गया!" : "Account created! Logging you in...");
@@ -104,7 +105,7 @@ const Auth = () => {
       const { error } = await supabase.auth.signInWithOtp({
         email: emailValidation.data,
         options: {
-          emailRedirectTo: `${window.location.origin}/app/home`,
+          emailRedirectTo: getAuthRedirectUrl("/app/home"),
         },
       });
       if (error) throw error;
@@ -132,7 +133,7 @@ const Auth = () => {
 
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(emailValidation.data, {
-        redirectTo: `${window.location.origin}/auth?mode=update-password`,
+        redirectTo: getAuthRedirectUrl("/auth?mode=update-password"),
       });
       if (error) throw error;
       setResetSent(true);
@@ -148,13 +149,25 @@ const Auth = () => {
   const handleGoogleSignIn = async () => {
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
+      if (isNativePlatform()) {
+        await supabase.auth.signOut({ scope: "local" });
+      }
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/app/home`,
+          redirectTo: getAuthRedirectUrl("/app/home"),
+          skipBrowserRedirect: isNativePlatform(),
+          queryParams: {
+            prompt: "select_account",
+          },
         },
       });
       if (error) throw error;
+
+      if (isNativePlatform() && data.url) {
+        await openNativeOAuthUrl(data.url);
+      }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : language === "hi" ? "Google साइन-इन विफल" : "Google sign-in failed";
       toast.error(message);

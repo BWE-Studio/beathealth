@@ -7,6 +7,8 @@ import { User, Settings, LogOut, Activity } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { FitnessTrackerConnection } from "./FitnessTrackerConnection";
+import { useAuth } from "@/hooks/useAuth";
+import { logProfileDebug, logRuntimeObject } from "@/lib/runtimeDebug";
 import {
   Dialog,
   DialogContent,
@@ -17,26 +19,38 @@ import {
 
 export const ProfileSection = () => {
   const navigate = useNavigate();
+  const { user, loading: authLoading } = useAuth();
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchProfile();
-  }, []);
+    if (authLoading) return;
+    if (!user?.id) {
+      console.log("[ProfileSection] AUTH USER:", user);
+      console.log("[ProfileSection] fetch skipped: no authenticated user id");
+      setLoading(false);
+      setProfile(null);
+      return;
+    }
 
-  const fetchProfile = async () => {
+    console.log("[ProfileSection] AUTH USER:", user);
+    fetchProfile(user.id);
+  }, [authLoading, user?.id]);
+
+  const fetchProfile = async (userId: string) => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
       const { data, error } = await supabase
         .from("profiles")
         .select("*")
-        .eq("id", user.id)
+        .eq("id", userId)
         .single();
+
+      const profileRes = { data, error };
+      logProfileDebug("ProfileSection.fetchProfile", user, profileRes);
 
       if (error) throw error;
       setProfile(data);
+      logRuntimeObject("[ProfileSection] PROFILE STATE AFTER SET", data);
     } catch (error) {
       console.error("Error fetching profile:", error);
     } finally {
@@ -69,6 +83,9 @@ export const ProfileSection = () => {
     .map((n: string) => n[0])
     .join("")
     .toUpperCase() || "U";
+
+  logRuntimeObject("[ProfileSection] RENDER PROFILE", profile);
+  console.log("[ProfileSection] RENDER INITIALS:", initials);
 
   return (
     <Card className="p-4 md:p-6 mb-6 bg-gradient-to-r from-background to-muted/20">

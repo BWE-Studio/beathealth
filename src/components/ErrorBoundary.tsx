@@ -2,6 +2,7 @@ import { Component, ErrorInfo, ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { AlertTriangle, RefreshCw, Home, Phone } from "lucide-react";
+import { logRuntimeObject } from "@/lib/runtimeDebug";
 
 interface Props {
   children: ReactNode;
@@ -23,7 +24,16 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error("Uncaught error:", error, errorInfo);
+    console.error("========== ERROR BOUNDARY DEBUG ==========");
+    console.error("EXACT EXCEPTION", error);
+    console.error("ERROR NAME", error.name);
+    console.error("ERROR MESSAGE", error.message);
+    console.error("ERROR STACK", error.stack);
+    console.error("COMPONENT STACK", errorInfo.componentStack);
+    logRuntimeObject("ERROR OBJECT", error);
+    logRuntimeObject("ERROR INFO", errorInfo);
+    console.error("CURRENT URL", window.location.href);
+    console.error("==========================================");
   }
 
   private handleRetry = () => {

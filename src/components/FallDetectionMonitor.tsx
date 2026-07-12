@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { AlertTriangle, Shield, Phone, Check, Activity } from "lucide-react";
 import { toast } from "sonner";
 import { haptic } from "@/lib/haptics";
+import { logProfileDebug } from "@/lib/runtimeDebug";
 
 interface FallEvent {
   severity: string;
@@ -50,14 +51,17 @@ export const FallDetectionMonitor = () => {
   useEffect(() => {
     const loadSettings = async () => {
       const { data: { user } } = await supabase.auth.getUser();
+      console.log("[FallDetectionMonitor] AUTH USER:", user);
       if (user) {
-        const { data } = await supabase
+        const profileRes = await supabase
           .from("profiles")
           .select("fall_detection_enabled")
           .eq("id", user.id)
           .single();
+
+        logProfileDebug("FallDetectionMonitor.loadSettings", user, profileRes);
         
-        if (data?.fall_detection_enabled) {
+        if (profileRes.data?.fall_detection_enabled) {
           setIsEnabled(true);
         }
       }

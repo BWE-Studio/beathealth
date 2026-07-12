@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { logProfileDebug } from "@/lib/runtimeDebug";
 
 interface AccessibilityContextType {
   textSize: "normal" | "large";
@@ -18,16 +19,19 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
     // Load preferences from profile
     const loadPreferences = async () => {
       const { data: { user } } = await supabase.auth.getUser();
+      console.log("[AccessibilityContext] AUTH USER:", user);
       if (user) {
-        const { data } = await supabase
+        const profileRes = await supabase
           .from("profiles")
           .select("text_size_preference, high_contrast_mode")
           .eq("id", user.id)
           .single();
+
+        logProfileDebug("AccessibilityContext.loadPreferences", user, profileRes);
         
-        if (data) {
-          setTextSizeState(data.text_size_preference as "normal" | "large" || "normal");
-          setHighContrastState(data.high_contrast_mode || false);
+        if (profileRes.data) {
+          setTextSizeState(profileRes.data.text_size_preference as "normal" | "large" || "normal");
+          setHighContrastState(profileRes.data.high_contrast_mode || false);
         }
       }
     };
