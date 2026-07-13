@@ -58,19 +58,41 @@ serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const lovableApiKey = Deno.env.get("LOVABLE_API_KEY")!;
-    
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const geminiApiKey = Deno.env.get("GEMINI_API_KEY");
 
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       throw new Error("No authorization header");
     }
 
-    const { data: { user }, error: userError } = await supabase.auth.getUser(
-      authHeader.replace("Bearer ", "")
+    const supabaseAuth = createClient(
+      supabaseUrl,
+      supabaseAnonKey,
+      {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+        },
+        global: {
+          headers: { Authorization: authHeader },
+        },
+      }
     );
+
+    const supabaseAdmin = createClient(
+      supabaseUrl,
+      supabaseServiceKey,
+      {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+        },
+      }
+    );
+
+    const { data: { user }, error: userError } = await supabaseAuth.auth.getUser();
 
     if (userError || !user) {
       throw new Error("Unauthorized");
@@ -81,10 +103,15 @@ serve(async (req) => {
     const { date } = validated;
     const targetDate = date || new Date().toISOString().split("T")[0];
 
-    console.log(`Calculating HeartScore for user ${user.id} on ${targetDate}`);
+    console.log("[HeartScore] Request start", {
+      userId: user.id,
+      targetDate,
+      hasGeminiApiKey: !!geminiApiKey,
+      adminKeyRole: getJwtRole(supabaseServiceKey),
+    });
 
     // Check rate limit
-    const { data: rateLimitOk, error: rateLimitError } = await supabase
+    const { data: rateLimitOk, error: rateLimitError } = await supabaseAdmin
       .rpc('check_rate_limit', {
         _user_id: user.id,
         _endpoint: 'calculate-heart-score',
@@ -104,7 +131,7 @@ serve(async (req) => {
     // Fetch all health data in parallel
     const [bpResult, sugarResult, behaviorResult, socialResult, envResult, cognitiveResult] = await Promise.all([
       // BP logs
-      supabase
+      supabaseAdmin
         .from("bp_logs")
         .select("*")
         .eq("user_id", user.id)
@@ -113,7 +140,7 @@ serve(async (req) => {
         .order("measured_at", { ascending: false }),
       
       // Sugar logs
-      supabase
+      supabaseAdmin
         .from("sugar_logs")
         .select("*")
         .eq("user_id", user.id)
@@ -122,14 +149,14 @@ serve(async (req) => {
         .order("measured_at", { ascending: false }),
       
       // Behavior logs
-      supabase
+      supabaseAdmin
         .from("behavior_logs")
         .select("*")
         .eq("user_id", user.id)
         .eq("log_date", targetDate),
       
       // Social wellness logs
-      supabase
+      supabaseAdmin
         .from("social_wellness_logs")
         .select("*")
         .eq("user_id", user.id)
@@ -137,7 +164,7 @@ serve(async (req) => {
         .maybeSingle(),
       
       // Environmental logs (most recent)
-      supabase
+      supabaseAdmin
         .from("environmental_logs")
         .select("*")
         .eq("user_id", user.id)
@@ -147,7 +174,7 @@ serve(async (req) => {
         .maybeSingle(),
       
       // Cognitive assessments (last 7 days for trend)
-      supabase
+      supabaseAdmin
         .from("cognitive_assessments")
         .select("*")
         .eq("user_id", user.id)
@@ -321,34 +348,103 @@ Write a warm, encouraging 2-3 sentence summary in simple English. Highlight the 
     let aiExplanation = "Your HeartScore reflects your overall health today. Keep logging your daily rituals!";
 
     try {
-      const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      if (!geminiApiKey) {
+        console.error("[HeartScore] GEMINI_API_KEY is not configured. Using fallback explanation.");
+        throw new Error("GEMINI_API_KEY not configured");
+      }
+
+      const requestBody = {
+        system_instruction: {
+          parts: [{ text: "You are a supportive health coach for Indian adults managing BP, diabetes, and heart health." }],
+        },
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: aiPrompt }],
+          },
+        ],
+        generationConfig: {
+          maxOutputTokens: 300,
+          temperature: 0.7,
+        },
+      };
+
+      console.log("[HeartScore] Calling Gemini API", {
+        endpoint: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        model: "gemini-2.5-flash",
+        heartScore,
+      });
+
+      const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${lovableApiKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
-          messages: [
-            { role: "system", content: "You are a supportive health coach for Indian adults managing BP, diabetes, and heart health." },
-            { role: "user", content: aiPrompt }
-          ],
-          temperature: 0.7,
-        }),
+        body: JSON.stringify(requestBody),
+      });
+
+      console.log("[HeartScore] Gemini status", {
+        ok: aiResponse.ok,
+        status: aiResponse.status,
+        statusText: aiResponse.statusText,
+      });
+
+      const responseText = await aiResponse.text();
+      console.log("[HeartScore] Gemini response preview", {
+        bodyPreview: trimForLog(responseText),
+        bodyLength: responseText.length,
       });
 
       if (aiResponse.ok) {
-        const aiData = await aiResponse.json();
-        aiExplanation = aiData.choices?.[0]?.message?.content || aiExplanation;
+        let aiData: any;
+        try {
+          aiData = JSON.parse(responseText);
+        } catch (parseError) {
+          console.error("[HeartScore] Invalid Gemini JSON response:", {
+            parseError,
+            responsePreview: trimForLog(responseText),
+          });
+          throw new Error("Invalid Gemini response");
+        }
+
+        const explanation = extractGeminiText(aiData);
+        if (!explanation) {
+          console.error("[HeartScore] Gemini response did not include text content", {
+            aiData,
+          });
+          throw new Error("Invalid Gemini response");
+        }
+
+        aiExplanation = explanation;
+        console.log("[HeartScore] Parsed explanation", {
+          explanationPreview: trimForLog(aiExplanation),
+          explanationLength: aiExplanation.length,
+        });
       } else {
-        console.error("AI explanation failed:", await aiResponse.text());
+        console.error("[HeartScore] Gemini explanation failed:", {
+          status: aiResponse.status,
+          statusText: aiResponse.statusText,
+          errorText: trimForLog(responseText),
+        });
+
+        if (aiResponse.status === 401) {
+          throw new Error("Gemini API unauthorized. Check GEMINI_API_KEY.");
+        }
+        if (aiResponse.status === 403) {
+          throw new Error("Gemini API permission denied.");
+        }
+        if (aiResponse.status === 429) {
+          throw new Error("Gemini quota exhausted.");
+        }
+
+        throw new Error(`Gemini API error: ${aiResponse.status}`);
       }
     } catch (aiError) {
-      console.error("Error generating AI explanation:", aiError);
+      console.error("[HeartScore] Error generating AI explanation:", aiError);
     }
 
     // Store the HeartScore
-    const { data: heartScoreData, error: insertError } = await supabase
+    const { data: heartScoreData, error: insertError } = await supabaseAdmin
       .from("heart_scores")
       .upsert({
         user_id: user.id,
@@ -366,7 +462,7 @@ Write a warm, encouraging 2-3 sentence summary in simple English. Highlight the 
 
     if (insertError) throw insertError;
 
-    console.log("HeartScore saved successfully:", heartScoreData);
+    console.log("[HeartScore] HeartScore saved successfully:", heartScoreData);
 
     // Generate health alerts based on readings
     const alertsToCreate: any[] = [];
@@ -417,7 +513,7 @@ Write a warm, encouraging 2-3 sentence summary in simple English. Highlight the 
 
     // Insert alerts if any
     if (alertsToCreate.length > 0) {
-      const { error: alertError } = await supabase
+      const { error: alertError } = await supabaseAdmin
         .from("health_alerts")
         .insert(alertsToCreate);
       
@@ -476,3 +572,31 @@ Write a warm, encouraging 2-3 sentence summary in simple English. Highlight the 
     );
   }
 });
+
+function extractGeminiText(response: any): string {
+  const parts = response?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) return "";
+
+  return parts
+    .map((part) => part?.text)
+    .filter((text) => typeof text === "string")
+    .join("\n")
+    .trim();
+}
+
+function trimForLog(value: string, maxLength = 4000): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength)}... [trimmed ${value.length - maxLength} chars]`;
+}
+
+function getJwtRole(jwt: string): string {
+  try {
+    const payload = jwt.split(".")[1];
+    if (!payload) return "unknown";
+
+    const decoded = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
+    return typeof decoded.role === "string" ? decoded.role : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
