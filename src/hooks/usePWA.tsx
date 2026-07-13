@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Capacitor } from "@capacitor/core";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -15,6 +16,31 @@ export const usePWA = () => {
       setDeferredPrompt(e as BeforeInstallPromptEvent);
       setIsInstallable(true);
     };
+
+    const isNative = Capacitor.isNativePlatform();
+
+    if (isNative) {
+      setDeferredPrompt(null);
+      setIsInstallable(false);
+
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.getRegistrations()
+          .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+          .catch((error) => {
+            console.error("Native service worker cleanup failed:", error);
+          });
+      }
+
+      if ("caches" in window) {
+        caches.keys()
+          .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+          .catch((error) => {
+            console.error("Native cache cleanup failed:", error);
+          });
+      }
+
+      return;
+    }
 
     window.addEventListener("beforeinstallprompt", handler);
 

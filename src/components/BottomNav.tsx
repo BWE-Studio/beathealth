@@ -5,7 +5,6 @@ import { haptic } from "@/lib/haptics";
 import beatLogo from "@/assets/beat-logo.png";
 import { useState } from "react";
 import { HealthSummarySheet } from "@/components/HealthSummarySheet";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 
 // Simplified 3-item navigation for senior-friendly UX
 const navItems = [
@@ -31,7 +30,9 @@ export const BottomNav = () => {
 
   return (
     <>
-      <HealthSummarySheet isOpen={healthSheetOpen} onClose={() => setHealthSheetOpen(false)} />
+      {healthSheetOpen && (
+        <HealthSummarySheet isOpen={healthSheetOpen} onClose={() => setHealthSheetOpen(false)} />
+      )}
       
       <nav id="bottom-nav" className="fixed bottom-0 left-0 right-0 z-50 bg-background/95 backdrop-blur-md border-t border-border md:hidden transition-all duration-300 safe-area-bottom">
         <div className="flex justify-around items-center h-20 px-2">

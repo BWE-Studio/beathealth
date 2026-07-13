@@ -1,4 +1,5 @@
 import { ReactNode } from "react";
+import { Capacitor } from "@capacitor/core";
 import { cn } from "@/lib/utils";
 
 interface PageTransitionProps {
@@ -7,8 +8,10 @@ interface PageTransitionProps {
 }
 
 export const PageTransition = ({ children, className }: PageTransitionProps) => {
+  const isAndroidNative = Capacitor.getPlatform() === "android";
+
   return (
-    <div className={cn("animate-fade-in", className)}>
+    <div data-page-shell className={cn(!isAndroidNative && "animate-fade-in", className)}>
       {children}
     </div>
   );

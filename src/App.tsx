@@ -2,6 +2,7 @@ import { Toaster as SonnerToaster } from "sonner";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { useEffect } from "react";
+import { Capacitor } from "@capacitor/core";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { AccessibilityProvider } from "@/contexts/AccessibilityContext";
@@ -90,6 +91,7 @@ const AppContent = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const showBottomNav = location.pathname.startsWith("/app/");
+  const isAndroidNative = Capacitor.getPlatform() === "android";
 
   // Scroll to top on route change
   useEffect(() => {
@@ -100,7 +102,7 @@ const AppContent = () => {
 
   return (
     <>
-      <CinematicBackground />
+      {!isAndroidNative && <CinematicBackground />}
       <Suspense fallback={<LoadingFallback />}>
         <PageTransition key={location.pathname}>
           <Routes location={location}>

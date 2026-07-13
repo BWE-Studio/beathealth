@@ -165,7 +165,7 @@ const Dashboard = () => {
   ];
 
   return (
-    <div className="min-h-screen pb-24 md:pb-6 bg-background">
+    <div data-dashboard-root className="min-h-screen pb-24 md:pb-6 bg-background">
       <Header />
       <InteractiveTutorial />
       <StreakCelebration show={showCelebration} streakCount={mainStreakCount} onClose={() => setShowCelebration(false)} />
@@ -233,7 +233,7 @@ const Dashboard = () => {
         </section>
 
         {/* HeartScore Card */}
-        <section className="mb-6">
+        <section data-dashboard-section="heart-score" className="mb-6">
           <HeartScoreCard />
         </section>
 

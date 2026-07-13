@@ -516,3 +516,45 @@ input:focus, textarea:focus, select:focus {
 .text-landing-coral { color: hsl(var(--landing-coral)); }
 .border-landing-border { border-color: hsl(var(--landing-border)); }
 .border-landing-primary { border-color: hsl(var(--landing-primary)); }
+
+/* Android Capacitor WebView: avoid stale GPU-composited paint layers from
+   route transitions, animated blobs, and backdrop-filter portals. */
+.capacitor-android .animate-fade-in,
+.capacitor-android .animate-blob {
+  animation: none !important;
+}
+
+.capacitor-android .backdrop-blur-sm,
+.capacitor-android .backdrop-blur-md,
+.capacitor-android .backdrop-blur-xl,
+.capacitor-android .backdrop-blur-2xl {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.capacitor-android body,
+.capacitor-android #root,
+.capacitor-android [data-page-shell],
+.capacitor-android [data-dashboard-root] {
+  background: hsl(var(--background)) !important;
+  isolation: isolate;
+}
+
+.capacitor-android [data-page-shell],
+.capacitor-android [data-dashboard-root],
+.capacitor-android [data-dashboard-section] {
+  contain: layout paint;
+}
+
+.capacitor-android .bg-background\/80,
+.capacitor-android .bg-background\/95 {
+  background-color: hsl(var(--background)) !important;
+}
+
+.capacitor-android .bg-card\/50,
+.capacitor-android .bg-card\/60,
+.capacitor-android .bg-card\/80,
+.capacitor-android .bg-card\/90,
+.capacitor-android .bg-card\/95 {
+  background-color: hsl(var(--card)) !important;
+}
