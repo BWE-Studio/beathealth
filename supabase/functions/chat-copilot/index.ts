@@ -176,6 +176,176 @@ const agentTools = [
   }
 ];
 
+const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+
+type ChatMessage = z.infer<typeof chatSchema>["messages"][number];
+
+function trimForLog(value: string, maxLength = 1200): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength)}... [trimmed ${value.length - maxLength} chars]`;
+}
+
+function convertMessagesToGeminiContents(messages: ChatMessage[]) {
+  return messages.map((message) => ({
+    role: message.role === "assistant" ? "model" : "user",
+    parts: [{
+      text: message.role === "system"
+        ? `System note: ${message.content}`
+        : message.content,
+    }],
+  }));
+}
+
+function convertSchemaToGemini(schema: any): any {
+  if (!schema || typeof schema !== "object") return schema;
+
+  const { additionalProperties: _additionalProperties, properties, items, ...rest } = schema;
+  const converted: any = { ...rest };
+
+  if (properties) {
+    converted.properties = Object.fromEntries(
+      Object.entries(properties).map(([key, value]) => [key, convertSchemaToGemini(value)])
+    );
+  }
+
+  if (items) {
+    converted.items = convertSchemaToGemini(items);
+  }
+
+  return converted;
+}
+
+function convertToolsToGeminiDeclarations(tools: typeof agentTools) {
+  return tools.map((tool) => ({
+    name: tool.function.name,
+    description: tool.function.description,
+    parameters: convertSchemaToGemini(tool.function.parameters),
+  }));
+}
+
+function extractGeminiText(data: any): string {
+  return data?.candidates?.[0]?.content?.parts
+    ?.map((part: any) => part.text || "")
+    .filter(Boolean)
+    .join("") || "";
+}
+
+function extractGeminiFunctionCalls(data: any) {
+  return data?.candidates?.[0]?.content?.parts
+    ?.filter((part: any) => part.functionCall)
+    .map((part: any, index: number) => ({
+      id: `gemini-tool-call-${index}`,
+      name: part.functionCall.name,
+      args: part.functionCall.args || {},
+    })) || [];
+}
+
+function createSseResponse(content: string) {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+        choices: [{ delta: { content } }],
+      })}\n\n`));
+      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+    },
+  });
+}
+
+async function callGemini(params: {
+  apiKey: string;
+  systemPrompt: string;
+  contents: any[];
+  includeTools?: boolean;
+  logContext: string;
+}) {
+  const requestBody: any = {
+    system_instruction: {
+      parts: [{ text: params.systemPrompt }],
+    },
+    contents: params.contents,
+    generationConfig: {
+      temperature: 0.7,
+      maxOutputTokens: 1000,
+    },
+  };
+
+  if (params.includeTools) {
+    requestBody.tools = [{
+      function_declarations: convertToolsToGeminiDeclarations(agentTools),
+    }];
+    requestBody.tool_config = {
+      function_calling_config: {
+        mode: "auto",
+      },
+    };
+  }
+
+  console.log("[ChatCopilot] Calling Gemini", {
+    endpoint: GEMINI_ENDPOINT,
+    model: "gemini-2.5-flash",
+    logContext: params.logContext,
+    includeTools: !!params.includeTools,
+    contentsCount: params.contents.length,
+  });
+
+  const response = await fetch(`${GEMINI_ENDPOINT}?key=${params.apiKey}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  console.log("[ChatCopilot] Gemini response received", {
+    logContext: params.logContext,
+    ok: response.ok,
+    status: response.status,
+    statusText: response.statusText,
+  });
+
+  const responseText = await response.text();
+  console.log("[ChatCopilot] Gemini response preview", {
+    logContext: params.logContext,
+    bodyPreview: trimForLog(responseText),
+    bodyLength: responseText.length,
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error("Gemini API unauthorized. Check GEMINI_API_KEY.");
+    }
+    if (response.status === 403) {
+      throw new Error("Gemini API permission denied.");
+    }
+    if (response.status === 429) {
+      throw new Error("Gemini quota exhausted.");
+    }
+    throw new Error(`Gemini API error: ${response.status}`);
+  }
+
+  try {
+    return JSON.parse(responseText);
+  } catch (error) {
+    console.error("[ChatCopilot] Invalid Gemini JSON response", {
+      logContext: params.logContext,
+      error,
+      responsePreview: trimForLog(responseText),
+    });
+    throw new Error("Invalid Gemini response");
+  }
+}
+
 // Function to fetch user health data context
 async function getUserHealthContext(supabase: any, userId: string) {
   const today = new Date().toISOString().split("T")[0];
@@ -551,15 +721,22 @@ serve(async (req) => {
     const body = await req.json();
     const validated = chatSchema.parse(body);
     const { messages, language } = validated;
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
     
-    if (!LOVABLE_API_KEY) {
-      console.error("LOVABLE_API_KEY is not configured");
+    if (!GEMINI_API_KEY) {
+      console.error("[ChatCopilot] GEMINI_API_KEY is not configured");
       return new Response(
         JSON.stringify({ error: "AI service not configured" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    console.log("[ChatCopilot] Request start", {
+      userId: user.id,
+      language,
+      messagesCount: messages.length,
+      hasGeminiApiKey: !!GEMINI_API_KEY,
+    });
 
     // Fetch user's health data for personalized context
     const healthContext = await getUserHealthContext(supabase, user.id);
@@ -619,121 +796,128 @@ VOICE COMMAND PATTERNS (recognize these natural speech patterns):
 
 MEDICAL DISCLAIMER: Always remind users that this is health coaching guidance, not medical diagnosis.`;
 
-    // First API call with tools
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          ...messages,
-        ],
-        tools: agentTools,
-        stream: false, // Need non-streaming for tool calls
-      }),
+    const geminiContents = convertMessagesToGeminiContents(messages);
+
+    // First Gemini call with tools. This remains non-streaming because tool calls
+    // must be inspected and executed before the final user-facing response.
+    const aiResponse = await callGemini({
+      apiKey: GEMINI_API_KEY,
+      systemPrompt,
+      contents: geminiContents,
+      includeTools: true,
+      logContext: "tool-selection",
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("AI Gateway error:", response.status, errorText);
-      
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "Payment required. Please add credits to continue." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      return new Response(
-        JSON.stringify({ error: "AI service error" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const aiResponse = await response.json();
-    const assistantMessage = aiResponse.choices?.[0]?.message;
+    const functionCalls = extractGeminiFunctionCalls(aiResponse);
+    console.log("[ChatCopilot] Parse complete", {
+      logContext: "tool-selection",
+      functionCallCount: functionCalls.length,
+      textPreview: trimForLog(extractGeminiText(aiResponse)),
+    });
 
     // Check if there are tool calls
-    if (assistantMessage?.tool_calls && assistantMessage.tool_calls.length > 0) {
+    if (functionCalls.length > 0) {
       // Execute tool calls
       const toolResults = [];
-      for (const toolCall of assistantMessage.tool_calls) {
-        const functionName = toolCall.function.name;
-        const args = JSON.parse(toolCall.function.arguments || '{}');
+      for (const toolCall of functionCalls) {
+        const functionName = toolCall.name;
+        const args = toolCall.args;
         
         console.log(`Executing tool: ${functionName}`, args);
         
         const result = await executeAgentFunction(supabase, user.id, functionName, args);
         toolResults.push({
           tool_call_id: toolCall.id,
+          name: functionName,
           role: "tool",
           content: result,
         });
       }
 
-      // Second API call with tool results (streaming)
-      const finalResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${LOVABLE_API_KEY}`,
-          "Content-Type": "application/json",
+      const finalContents = [
+        ...geminiContents,
+        {
+          role: "model",
+          parts: functionCalls.map((toolCall) => ({
+            functionCall: {
+              name: toolCall.name,
+              args: toolCall.args,
+            },
+          })),
         },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
-          messages: [
-            { role: "system", content: systemPrompt },
-            ...messages,
-            assistantMessage,
-            ...toolResults,
-          ],
-          stream: true,
-        }),
+        {
+          role: "user",
+          parts: toolResults.map((toolResult) => ({
+            functionResponse: {
+              name: toolResult.name,
+              response: {
+                result: toolResult.content,
+              },
+            },
+          })),
+        },
+      ];
+
+      // Second Gemini call with tool results. It returns complete text, then this
+      // function wraps it as OpenAI-compatible SSE for the existing frontend.
+      const finalResponse = await callGemini({
+        apiKey: GEMINI_API_KEY,
+        systemPrompt,
+        contents: finalContents,
+        logContext: "final-with-tools",
       });
 
-      if (!finalResponse.ok) {
-        console.error("Final response error:", await finalResponse.text());
+      const finalText = extractGeminiText(finalResponse);
+      console.log("[ChatCopilot] Parse complete", {
+        logContext: "final-with-tools",
+        textPreview: trimForLog(finalText),
+        textLength: finalText.length,
+      });
+
+      if (!finalText) {
+        console.error("[ChatCopilot] Gemini final response did not include text", finalResponse);
         return new Response(
-          JSON.stringify({ error: "AI service error" }),
+          JSON.stringify({ error: "Invalid Gemini response" }),
           { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
-      return new Response(finalResponse.body, {
-        headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+      return createSseResponse(finalText);
+    }
+
+    // No tool calls - return the first Gemini text as OpenAI-compatible SSE.
+    let responseText = extractGeminiText(aiResponse);
+    if (!responseText) {
+      const directResponse = await callGemini({
+        apiKey: GEMINI_API_KEY,
+        systemPrompt,
+        contents: geminiContents,
+        logContext: "direct-response",
+      });
+
+      responseText = extractGeminiText(directResponse);
+      console.log("[ChatCopilot] Parse complete", {
+        logContext: "direct-response",
+        textPreview: trimForLog(responseText),
+        textLength: responseText.length,
       });
     }
 
-    // No tool calls - return streaming response directly
-    const streamingResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          ...messages,
-        ],
-        stream: true,
-      }),
+    if (!responseText) {
+      console.error("[ChatCopilot] Gemini response did not include text", aiResponse);
+      return new Response(
+        JSON.stringify({ error: "Invalid Gemini response" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    console.log("[ChatCopilot] Parse complete", {
+      logContext: "no-tools",
+      textPreview: trimForLog(responseText),
+      textLength: responseText.length,
     });
 
-    return new Response(streamingResponse.body, {
-      headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
-    });
+    return createSseResponse(responseText);
 
   } catch (error) {
     console.error("Chat copilot error:", error);
@@ -744,6 +928,32 @@ MEDICAL DISCLAIMER: Always remind users that this is health coaching guidance, n
         JSON.stringify({ error: "Invalid input", details: error.errors }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
+    }
+
+    if (error instanceof Error) {
+      if (error.message.includes("Gemini quota exhausted")) {
+        return new Response(
+          JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
+          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      if (
+        error.message.includes("Gemini API unauthorized") ||
+        error.message.includes("Gemini API permission denied")
+      ) {
+        return new Response(
+          JSON.stringify({ error: "AI service error" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      if (error.message.includes("Invalid Gemini response")) {
+        return new Response(
+          JSON.stringify({ error: "Invalid Gemini response" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
     }
     
     return new Response(
