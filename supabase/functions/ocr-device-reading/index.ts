@@ -32,7 +32,16 @@ serve(async (req) => {
   try {
     const { imageBase64, deviceHint } = await req.json();
 
+    console.log("[OCR][Edge] Request received", {
+      method: req.method,
+      deviceHint,
+      hasImage: !!imageBase64,
+      imageBase64Length: typeof imageBase64 === "string" ? imageBase64.length : null,
+      imageBase64Prefix: typeof imageBase64 === "string" ? imageBase64.slice(0, 80) : null,
+    });
+
     if (!imageBase64) {
+      console.log("[OCR][Edge] Rejecting request: no image provided");
       return new Response(
         JSON.stringify({ success: false, error: "No image provided" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -41,11 +50,16 @@ serve(async (req) => {
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
+      console.error("[OCR][Edge] LOVABLE_API_KEY is not configured");
       return new Response(
         JSON.stringify({ success: false, error: "API key not configured" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    console.log("[OCR][Edge] LOVABLE_API_KEY is configured", {
+      keyLength: LOVABLE_API_KEY.length,
+    });
 
     const systemPrompt = `You are an expert medical device OCR system. Your task is to accurately extract readings from photos of medical measurement devices.
 
@@ -90,36 +104,58 @@ Return your analysis as a JSON object with this structure:
       ? `Extract the readings from this ${deviceHint} device photo. Focus on the digital display.`
       : `Identify this medical device and extract all visible readings from the display.`;
 
+    const imageUrl = imageBase64.startsWith("data:") ? imageBase64 : `data:image/jpeg;base64,${imageBase64}`;
+    const requestBody = {
+      model: "google/gemini-2.5-flash",
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: userPrompt },
+            {
+              type: "image_url",
+              image_url: {
+                url: imageUrl,
+              },
+            },
+          ],
+        },
+      ],
+      max_tokens: 1000,
+    };
+
+    console.log("[OCR][Edge] Calling Lovable AI Gateway", {
+      endpoint: "https://ai.gateway.lovable.dev/v1/chat/completions",
+      model: requestBody.model,
+      deviceHint,
+      userPrompt,
+      imageUrlLength: imageUrl.length,
+      imageUrlPrefix: imageUrl.slice(0, 80),
+    });
+
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${LOVABLE_API_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: userPrompt },
-              {
-                type: "image_url",
-                image_url: {
-                  url: imageBase64.startsWith("data:") ? imageBase64 : `data:image/jpeg;base64,${imageBase64}`,
-                },
-              },
-            ],
-          },
-        ],
-        max_tokens: 1000,
-      }),
+      body: JSON.stringify(requestBody),
+    });
+
+    console.log("[OCR][Edge] Lovable AI Gateway response status", {
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("AI Gateway error:", response.status, errorText);
+      console.error("[OCR][Edge] AI Gateway error:", {
+        status: response.status,
+        statusText: response.statusText,
+        errorText,
+      });
       
       if (response.status === 429) {
         return new Response(
@@ -143,17 +179,31 @@ Return your analysis as a JSON object with this structure:
     const aiResponse = await response.json();
     const content = aiResponse.choices?.[0]?.message?.content || "";
 
+    console.log("[OCR][Edge] AI response payload", {
+      aiResponse,
+      content,
+      contentLength: content.length,
+    });
+
     // Extract JSON from the response
     let ocrData: any = {};
     try {
       const jsonMatch = content.match(/\{[\s\S]*\}/);
+      console.log("[OCR][Edge] JSON extraction result", {
+        hasJsonMatch: !!jsonMatch,
+        jsonPreview: jsonMatch?.[0]?.slice(0, 500),
+      });
       if (jsonMatch) {
         ocrData = JSON.parse(jsonMatch[0]);
       }
+      console.log("[OCR][Edge] Parsed OCR JSON", ocrData);
     } catch (parseError) {
-      console.error("JSON parse error:", parseError);
+      console.error("[OCR][Edge] JSON parse error:", parseError);
       // Try to extract numbers manually
       const numbers = content.match(/\d+/g)?.map(Number) || [];
+      console.log("[OCR][Edge] Manual number extraction fallback", {
+        numbers,
+      });
       if (numbers.length >= 2) {
         const sorted = [...numbers].sort((a, b) => b - a);
         ocrData = {
@@ -193,13 +243,13 @@ Return your analysis as a JSON object with this structure:
       result.readings.measurement_type = hour < 10 ? "fasting" : "random";
     }
 
-    console.log("OCR Result:", result);
+    console.log("[OCR][Edge] Final OCR result:", result);
 
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
-    console.error("OCR error:", error);
+    console.error("[OCR][Edge] OCR exception:", error);
     return new Response(
       JSON.stringify({ 
         success: false, 

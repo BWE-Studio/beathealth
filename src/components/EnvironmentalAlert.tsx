@@ -31,6 +31,7 @@ const getAQILevel = (aqi: number) => {
 export const EnvironmentalAlert = () => {
   const queryClient = useQueryClient();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const { data: envData, isLoading } = useQuery({
     queryKey: ["environmental-data"],
@@ -68,6 +69,7 @@ export const EnvironmentalAlert = () => {
     mutationFn: async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
+      if (!navigator.geolocation) throw new Error("Location is not available on this device");
 
       // Get current location
       const position = await new Promise<GeolocationPosition>((resolve, reject) => {
@@ -88,12 +90,20 @@ export const EnvironmentalAlert = () => {
       return data;
     },
     onSuccess: () => {
+      setErrorMessage(null);
       queryClient.invalidateQueries({ queryKey: ["environmental-data"] });
       toast.success("Air quality updated");
     },
     onError: (error) => {
       console.error("Error fetching air quality:", error);
-      toast.error("Could not fetch air quality data");
+      const isPermissionDenied = typeof error === "object"
+        && error !== null
+        && "code" in error
+        && error.code === 1;
+      const message = isPermissionDenied
+        ? "Location permission is needed to check local AQI."
+        : "Air quality is unavailable right now.";
+      setErrorMessage(message);
     },
     onSettled: () => {
       setIsRefreshing(false);
@@ -102,13 +112,36 @@ export const EnvironmentalAlert = () => {
 
   // Auto-fetch on first load if no data
   useEffect(() => {
-    if (!isLoading && !envData && navigator.geolocation) {
-      setIsRefreshing(true);
-      fetchAirQuality.mutate();
-    }
+    if (isLoading || envData || !navigator.geolocation || !navigator.permissions) return;
+
+    navigator.permissions
+      .query({ name: "geolocation" as PermissionName })
+      .then((status) => {
+        if (status.state === "granted") {
+          setIsRefreshing(true);
+          fetchAirQuality.mutate();
+        }
+      })
+      .catch(() => {
+        // Some WebViews do not expose Permissions API reliably. Avoid auto-prompting.
+      });
   }, [isLoading, envData]);
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
+    setErrorMessage(null);
+
+    if (navigator.permissions) {
+      try {
+        const status = await navigator.permissions.query({ name: "geolocation" as PermissionName });
+        if (status.state === "denied") {
+          setErrorMessage("Location permission is blocked. Enable it in device settings to check local AQI.");
+          return;
+        }
+      } catch {
+        // Fall through to geolocation request on platforms without Permissions API support.
+      }
+    }
+
     setIsRefreshing(true);
     fetchAirQuality.mutate();
   };
@@ -138,7 +171,9 @@ export const EnvironmentalAlert = () => {
               <Wind className="h-8 w-8 text-muted-foreground" />
               <div>
                 <p className="font-medium">Air Quality</p>
-                <p className="text-sm text-muted-foreground">Tap to check local AQI</p>
+                <p className="text-sm text-muted-foreground">
+                  {errorMessage || "Tap to check local AQI"}
+                </p>
               </div>
             </div>
             <Button 

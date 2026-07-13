@@ -59,8 +59,20 @@ export const SmartDeviceCapture = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    console.log("[OCR][SmartDeviceCapture] Image selected", {
+      deviceType,
+      fileName: file.name,
+      fileType: file.type,
+      fileSize: file.size,
+      lastModified: file.lastModified,
+    });
+
     // Validate file size (max 10MB)
     if (file.size > 10 * 1024 * 1024) {
+      console.log("[OCR][SmartDeviceCapture] Image rejected: file too large", {
+        fileSize: file.size,
+        maxSize: 10 * 1024 * 1024,
+      });
       toast.error(language === "hi" ? "फ़ाइल बहुत बड़ी है (max 10MB)" : "File too large (max 10MB)");
       return;
     }
@@ -71,8 +83,16 @@ export const SmartDeviceCapture = ({
     const reader = new FileReader();
     reader.onload = async (event) => {
       const base64 = event.target?.result as string;
+      console.log("[OCR][SmartDeviceCapture] FileReader loaded image", {
+        deviceType,
+        base64Length: base64?.length,
+        base64Prefix: base64?.slice(0, 80),
+      });
       setImagePreview(base64);
       await processImage(base64);
+    };
+    reader.onerror = () => {
+      console.error("[OCR][SmartDeviceCapture] FileReader failed", reader.error);
     };
     reader.readAsDataURL(file);
   };
@@ -82,20 +102,45 @@ export const SmartDeviceCapture = ({
     setError(null);
 
     try {
-      const { data, error: fnError } = await supabase.functions.invoke("ocr-device-reading", {
-        body: {
-          imageBase64: base64,
-          deviceHint: deviceType !== "any" ? deviceType : undefined,
-        },
+      const requestBody = {
+        imageBase64: base64,
+        deviceHint: deviceType !== "any" ? deviceType : undefined,
+      };
+
+      console.log("[OCR][SmartDeviceCapture] Invoking ocr-device-reading", {
+        deviceType,
+        deviceHint: requestBody.deviceHint,
+        imageBase64Length: base64.length,
+        imageBase64Prefix: base64.slice(0, 80),
       });
 
-      if (fnError) throw fnError;
+      const { data, error: fnError } = await supabase.functions.invoke("ocr-device-reading", {
+        body: requestBody,
+      });
+
+      console.log("[OCR][SmartDeviceCapture] Edge function response", {
+        data,
+        fnError,
+      });
+
+      if (fnError) {
+        console.error("[OCR][SmartDeviceCapture] Edge function returned error", fnError);
+        throw fnError;
+      }
 
       if (!data.success) {
+        console.log("[OCR][SmartDeviceCapture] OCR returned success=false", data);
         setError(data.error || "Failed to read device");
         setStage("idle");
         return;
       }
+
+      console.log("[OCR][SmartDeviceCapture] Parsed OCR values", {
+        readings: data.readings,
+        confidence: data.confidence,
+        suggestions: data.suggestions,
+        raw_text: data.raw_text,
+      });
 
       setResult(data.readings);
       setConfidence(data.confidence);
@@ -112,7 +157,7 @@ export const SmartDeviceCapture = ({
         );
       }
     } catch (err) {
-      console.error("OCR error:", err);
+      console.error("[OCR][SmartDeviceCapture] OCR exception", err);
       setError(
         language === "hi"
           ? "पढ़ने में त्रुटि। कृपया पुन: प्रयास करें।"
