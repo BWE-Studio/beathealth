@@ -9,10 +9,12 @@ export const QuickLogActions = () => {
   const { language } = useLanguage();
   const [checkinOpen, setCheckinOpen] = useState(false);
   const [checkinType, setCheckinType] = useState<"morning" | "evening">("morning");
+  const [initialShortcut, setInitialShortcut] = useState<"bp" | "sugar" | "sleep" | "steps">("bp");
 
-  const handleAction = (type: "morning" | "evening") => {
+  const handleAction = (type: "morning" | "evening", shortcut: "bp" | "sugar" | "sleep" | "steps") => {
     haptic("medium");
     setCheckinType(type);
+    setInitialShortcut(shortcut);
     setCheckinOpen(true);
   };
 
@@ -21,24 +23,28 @@ export const QuickLogActions = () => {
       label: language === "hi" ? "बीपी" : "BP",
       icon: Activity,
       type: "morning" as const,
+      shortcut: "bp" as const,
       variant: "primary" as const,
     },
     {
       label: language === "hi" ? "शुगर" : "Sugar",
       icon: Droplets,
       type: "morning" as const,
+      shortcut: "sugar" as const,
       variant: "secondary" as const,
     },
     {
       label: language === "hi" ? "नींद" : "Sleep",
       icon: Moon,
       type: "morning" as const,
+      shortcut: "sleep" as const,
       variant: "accent" as const,
     },
     {
       label: language === "hi" ? "कदम" : "Steps",
       icon: Footprints,
       type: "evening" as const,
+      shortcut: "steps" as const,
       variant: "success" as const,
     },
   ];
@@ -49,12 +55,13 @@ export const QuickLogActions = () => {
         isOpen={checkinOpen} 
         onClose={() => setCheckinOpen(false)} 
         type={checkinType}
+        initialShortcut={initialShortcut}
       />
       <div className="grid grid-cols-4 gap-2 sm:gap-3">
         {actions.map((action, index) => (
           <button
             key={index}
-            onClick={() => handleAction(action.type)}
+            onClick={() => handleAction(action.type, action.shortcut)}
             className="group flex flex-col items-center gap-2 p-3 sm:p-4 rounded-2xl bg-card border border-border/50 transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 active:scale-95"
           >
             <ThemedIcon 
