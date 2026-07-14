@@ -1,24 +1,30 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 
 export const useTutorial = () => {
+  const { user, loading: authLoading } = useAuth();
   const [currentStep, setCurrentStep] = useState(0);
   const [isActive, setIsActive] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    checkTutorialStatus();
-  }, []);
+    if (authLoading) return;
+    if (!user?.id) {
+      setIsLoading(false);
+      setIsActive(false);
+      return;
+    }
 
-  const checkTutorialStatus = async () => {
+    checkTutorialStatus(user.id);
+  }, [authLoading, user?.id]);
+
+  const checkTutorialStatus = async (userId: string) => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
       const { data, error } = await supabase
         .from("profiles")
         .select("tutorial_completed, tutorial_step")
-        .eq("id", user.id)
+        .eq("id", userId)
         .single();
 
       if (error) throw error;

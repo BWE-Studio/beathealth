@@ -6,6 +6,91 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+
+function trimForLog(value: string, maxLength = 1200): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength)}... [trimmed ${value.length - maxLength} chars]`;
+}
+
+function extractGeminiText(data: any): string {
+  return data?.candidates?.[0]?.content?.parts
+    ?.map((part: any) => part.text || "")
+    .filter(Boolean)
+    .join("") || "";
+}
+
+async function callGemini(params: {
+  apiKey: string;
+  systemPrompt: string;
+  userPrompt: string;
+}) {
+  const requestBody = {
+    system_instruction: {
+      parts: [{ text: params.systemPrompt }],
+    },
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: params.userPrompt }],
+      },
+    ],
+    generationConfig: {
+      temperature: 0.7,
+      maxOutputTokens: 1000,
+    },
+  };
+
+  console.log("[analyze-cognitive-health] Calling Gemini", {
+    endpoint: GEMINI_ENDPOINT,
+    model: "gemini-2.5-flash",
+    contentsCount: requestBody.contents.length,
+  });
+
+  const response = await fetch(`${GEMINI_ENDPOINT}?key=${params.apiKey}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  console.log("[analyze-cognitive-health] Gemini response status", {
+    ok: response.ok,
+    status: response.status,
+    statusText: response.statusText,
+  });
+
+  const responseText = await response.text();
+  console.log("[analyze-cognitive-health] Gemini response preview", {
+    bodyPreview: trimForLog(responseText),
+    bodyLength: responseText.length,
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error("Gemini API unauthorized. Check GEMINI_API_KEY.");
+    }
+    if (response.status === 403) {
+      throw new Error("Gemini API permission denied.");
+    }
+    if (response.status === 429) {
+      throw new Error("Gemini quota exhausted.");
+    }
+    throw new Error(`Gemini API error: ${response.status}`);
+  }
+
+  try {
+    return JSON.parse(responseText);
+  } catch (error) {
+    console.error("[analyze-cognitive-health] Invalid Gemini JSON response", {
+      error,
+      responsePreview: trimForLog(responseText),
+    });
+    throw new Error("Invalid Gemini response");
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -24,7 +109,7 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
+    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
 
     // Create auth client to verify user
     const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
@@ -47,6 +132,12 @@ serve(async (req) => {
 
     // Parse request body
     const { userId } = await req.json();
+
+    console.log("[analyze-cognitive-health] Request start", {
+      userId,
+      authenticatedUserId,
+      hasGeminiApiKey: !!GEMINI_API_KEY,
+    });
     
     // Authorization check: user can only analyze their own data
     if (authenticatedUserId !== userId) {
@@ -149,28 +240,28 @@ serve(async (req) => {
     }
 
     // Generate recommendations using AI if significant patterns exist
-    if (assessments && assessments.length >= 3 && LOVABLE_API_KEY) {
+    if (assessments && assessments.length >= 3) {
       try {
-        const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${LOVABLE_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "google/gemini-2.5-flash",
-            messages: [
-              {
-                role: "system",
-                content: `You are a health AI assistant analyzing cognitive health patterns. 
+        if (!GEMINI_API_KEY) {
+          console.error("[analyze-cognitive-health] GEMINI_API_KEY is not configured");
+          throw new Error("GEMINI_API_KEY not configured");
+        }
+
+        console.log("[analyze-cognitive-health] Gemini recommendation request start", {
+          assessmentCount: analysis.assessmentCount,
+          averageScore: analysis.averageScore,
+          trend: analysis.trend,
+          riskFactorCount: analysis.riskFactors.length,
+        });
+
+        const aiData = await callGemini({
+          apiKey: GEMINI_API_KEY,
+          systemPrompt: `You are a health AI assistant analyzing cognitive health patterns.
                 Provide 3-4 brief, practical recommendations to support brain health.
                 Focus on lifestyle factors like exercise, sleep, social engagement, and mental stimulation.
                 Keep recommendations culturally appropriate for Indian seniors.
                 Do NOT diagnose or suggest medication changes.`,
-              },
-              {
-                role: "user",
-                content: `Cognitive assessment data:
+          userPrompt: `Cognitive assessment data:
                 - Age: ${age}
                 - Average score: ${analysis.averageScore}%
                 - Trend: ${analysis.trend}
@@ -178,13 +269,18 @@ serve(async (req) => {
                 - Number of assessments: ${analysis.assessmentCount}
                 
                 Provide 3-4 specific recommendations for maintaining/improving cognitive health.`,
-              },
-            ],
-          }),
         });
 
-        const aiData = await response.json();
-        const recommendations = aiData.choices?.[0]?.message?.content;
+        const recommendations = extractGeminiText(aiData);
+        console.log("[analyze-cognitive-health] Gemini parsing complete", {
+          textPreview: trimForLog(recommendations),
+          textLength: recommendations.length,
+        });
+
+        if (!recommendations) {
+          console.error("[analyze-cognitive-health] Gemini response did not include text", aiData);
+          throw new Error("Invalid Gemini response");
+        }
 
         if (recommendations) {
           // Parse recommendations into array

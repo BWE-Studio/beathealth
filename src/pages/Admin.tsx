@@ -62,17 +62,19 @@ const Admin = () => {
   const fetchDashboardData = async () => {
     try {
       // Fetch user count
-      const { count: totalUsers } = await supabase
+      const totalUsersRes = await supabase
         .from("profiles")
         .select("*", { count: "exact", head: true });
+      const { count: totalUsers } = totalUsersRes;
 
       // Fetch users created in last 7 days
       const weekAgo = new Date();
       weekAgo.setDate(weekAgo.getDate() - 7);
-      const { count: newUsers } = await supabase
+      const newUsersRes = await supabase
         .from("profiles")
         .select("*", { count: "exact", head: true })
         .gte("created_at", weekAgo.toISOString());
+      const { count: newUsers } = newUsersRes;
 
       // Fetch active streaks
       const { count: activeStreaks } = await supabase
@@ -95,11 +97,12 @@ const Admin = () => {
       ]);
 
       // Fetch users list
-      const { data: usersData } = await supabase
+      const usersRes = await supabase
         .from("profiles")
         .select("id, email, full_name, created_at, onboarding_completed")
         .order("created_at", { ascending: false })
         .limit(50);
+      const { data: usersData } = usersRes;
 
       setUsers(usersData || []);
 

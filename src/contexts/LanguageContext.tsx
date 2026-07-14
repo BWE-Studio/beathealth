@@ -1,4 +1,5 @@
 import * as React from "react";
+import { supabase } from "@/integrations/supabase/client";
 
 type Language = "en" | "hi";
 
@@ -444,9 +445,95 @@ const translations = {
 };
 
 const LanguageContext = React.createContext<LanguageContextType | undefined>(undefined);
+const LANGUAGE_STORAGE_KEY = "beat-language";
+
+const isLanguage = (value: unknown): value is Language => value === "en" || value === "hi";
+
+const getStoredLanguage = (): Language => {
+  if (typeof window === "undefined") return "en";
+  const stored = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
+  return isLanguage(stored) ? stored : "en";
+};
 
 export const LanguageProvider = ({ children }: { children: React.ReactNode }) => {
-  const [language, setLanguage] = React.useState<Language>("en");
+  const [language, setLanguageState] = React.useState<Language>(getStoredLanguage);
+  const profileSyncSkippedRef = React.useRef(false);
+
+  const setLanguage = React.useCallback((lang: Language) => {
+    setLanguageState(lang);
+  }, []);
+
+  React.useEffect(() => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
+
+    if (!profileSyncSkippedRef.current) {
+      profileSyncSkippedRef.current = true;
+      return;
+    }
+
+    let cancelled = false;
+
+    const syncProfileLanguage = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || cancelled) return;
+
+      const { error } = await supabase
+        .from("profiles")
+        .update({ language })
+        .eq("id", user.id);
+
+      if (error) {
+        console.error("Failed to sync profile language", error);
+      }
+    };
+
+    syncProfileLanguage();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [language]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    const restoreProfileLanguage = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || cancelled) return;
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("language")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (error) {
+        console.error("Failed to restore profile language", error);
+        return;
+      }
+
+      if (isLanguage(data?.language) && !cancelled) {
+        setLanguage(data.language);
+      }
+    };
+
+    restoreProfileLanguage();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      const profileLanguage = session?.user?.user_metadata?.language;
+      if (isLanguage(profileLanguage)) {
+        setLanguage(profileLanguage);
+        return;
+      }
+
+      restoreProfileLanguage();
+    });
+
+    return () => {
+      cancelled = true;
+      authListener.subscription.unsubscribe();
+    };
+  }, [setLanguage]);
 
   const t = (key: string): string => {
     return translations[language][key as keyof typeof translations.en] || key;

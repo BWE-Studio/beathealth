@@ -76,7 +76,7 @@ export const WhatsAppSetup = () => {
           .upsert({
             user_id: user.id,
             whatsapp_enabled: whatsappEnabled,
-          }),
+          }, { onConflict: "user_id" }),
       ]);
     },
     onSuccess: () => {

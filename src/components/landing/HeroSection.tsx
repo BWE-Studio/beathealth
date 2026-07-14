@@ -102,6 +102,7 @@ export const HeroSection = () => {
             variant="outline"
             size="lg"
             className="h-14 rounded-full px-10 text-base font-semibold border-landing-border text-landing-text hover:bg-landing-card"
+            onClick={() => navigate("/features/heartscore")}
           >
             See How It Works
           </Button>

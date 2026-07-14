@@ -25,12 +25,13 @@ import { CognitiveCheckIn } from "@/components/CognitiveCheckIn";
 import { ActivityTracker } from "@/components/ActivityTracker";
 import { useNavigate } from "react-router-dom";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { useAuth } from "@/hooks/useAuth";
 
 const Dashboard = () => {
   const { t } = useLanguage();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [user, setUser] = useState<any>(null);
+  const { user } = useAuth();
   const { mainStreakCount, isLoading: streaksLoading } = useStreaks();
   const { achievements } = useAchievements();
   const [showCelebration, setShowCelebration] = useState(false);
@@ -120,13 +121,6 @@ const Dashboard = () => {
     enabled: !!user?.id,
   });
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) setUser(session.user);
-      else navigate("/auth");
-    });
-  }, [navigate]);
-
   // Real-time subscription for ritual updates
   useEffect(() => {
     if (!user?.id) return;
@@ -171,7 +165,7 @@ const Dashboard = () => {
   ];
 
   return (
-    <div className="min-h-screen pb-24 md:pb-6 bg-background">
+    <div data-dashboard-root className="min-h-screen pb-24 md:pb-6 bg-background">
       <Header />
       <InteractiveTutorial />
       <StreakCelebration show={showCelebration} streakCount={mainStreakCount} onClose={() => setShowCelebration(false)} />
@@ -239,7 +233,7 @@ const Dashboard = () => {
         </section>
 
         {/* HeartScore Card */}
-        <section className="mb-6">
+        <section data-dashboard-section="heart-score" className="mb-6">
           <HeartScoreCard />
         </section>
 

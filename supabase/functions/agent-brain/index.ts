@@ -18,6 +18,8 @@ const requestSchema = z.object({
   triggerPayload: z.record(z.any()).optional().default({}),
 });
 
+const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+
 // L2 Agent Tool Definitions
 const agentTools = [
   // READ TOOLS
@@ -126,6 +128,135 @@ const agentTools = [
     }
   }
 ];
+
+function trimForLog(value: string, maxLength = 1200): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength)}... [trimmed ${value.length - maxLength} chars]`;
+}
+
+function convertSchemaToGemini(schema: any): any {
+  if (!schema || typeof schema !== "object") return schema;
+
+  const { additionalProperties: _additionalProperties, properties, items, ...rest } = schema;
+  const converted: any = { ...rest };
+
+  if (properties) {
+    converted.properties = Object.fromEntries(
+      Object.entries(properties).map(([key, value]) => [key, convertSchemaToGemini(value)])
+    );
+  }
+
+  if (items) {
+    converted.items = convertSchemaToGemini(items);
+  }
+
+  return converted;
+}
+
+function convertToolsToGeminiDeclarations(tools: typeof agentTools) {
+  return tools.map((tool) => ({
+    name: tool.function.name,
+    description: tool.function.description,
+    parameters: convertSchemaToGemini(tool.function.parameters),
+  }));
+}
+
+function extractGeminiText(data: any): string {
+  return data?.candidates?.[0]?.content?.parts
+    ?.map((part: any) => part.text || "")
+    .filter(Boolean)
+    .join("") || "";
+}
+
+function extractGeminiFunctionCalls(data: any) {
+  return data?.candidates?.[0]?.content?.parts
+    ?.filter((part: any) => part.functionCall)
+    .map((part: any, index: number) => ({
+      id: `gemini-tool-call-${index}`,
+      name: part.functionCall.name,
+      args: part.functionCall.args || {},
+    })) || [];
+}
+
+async function callGemini(params: {
+  apiKey: string;
+  systemPrompt: string;
+  userPrompt: string;
+}) {
+  const requestBody = {
+    system_instruction: {
+      parts: [{ text: params.systemPrompt }],
+    },
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: params.userPrompt }],
+      },
+    ],
+    tools: [{
+      function_declarations: convertToolsToGeminiDeclarations(agentTools),
+    }],
+    tool_config: {
+      function_calling_config: {
+        mode: "AUTO",
+      },
+    },
+    generationConfig: {
+      temperature: 0.7,
+      maxOutputTokens: 1000,
+    },
+  };
+
+  console.log("[Agent Brain] Calling Gemini", {
+    endpoint: GEMINI_ENDPOINT,
+    model: "gemini-2.5-flash",
+    contentsCount: requestBody.contents.length,
+    toolsCount: agentTools.length,
+  });
+
+  const response = await fetch(`${GEMINI_ENDPOINT}?key=${params.apiKey}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  console.log("[Agent Brain] Gemini response status", {
+    ok: response.ok,
+    status: response.status,
+    statusText: response.statusText,
+  });
+
+  const responseText = await response.text();
+  console.log("[Agent Brain] Gemini response preview", {
+    bodyPreview: trimForLog(responseText),
+    bodyLength: responseText.length,
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error("Gemini API unauthorized. Check GEMINI_API_KEY.");
+    }
+    if (response.status === 403) {
+      throw new Error("Gemini API permission denied.");
+    }
+    if (response.status === 429) {
+      throw new Error("Gemini quota exhausted.");
+    }
+    throw new Error(`Gemini API error: ${response.status}`);
+  }
+
+  try {
+    return JSON.parse(responseText);
+  } catch (error) {
+    console.error("[Agent Brain] Invalid Gemini JSON response", {
+      error,
+      responsePreview: trimForLog(responseText),
+    });
+    throw new Error("Invalid Gemini response");
+  }
+}
 
 // Fetch user's full health context including memory and model
 async function getUserContext(supabase: any, userId: string) {
@@ -386,6 +517,16 @@ async function executeAgentTool(supabase: any, userId: string, toolName: string,
 // Main agent brain function
 async function analyzeAndAct(supabase: any, userId: string, triggerType: string, triggerPayload: any = {}) {
   console.log(`[Agent Brain] Starting analysis for user ${userId}, trigger: ${triggerType}`);
+  const geminiApiKey = Deno.env.get("GEMINI_API_KEY");
+
+  if (!geminiApiKey) {
+    console.error("[Agent Brain] GEMINI_API_KEY is not configured");
+    return {
+      success: false,
+      error: "AI service not configured",
+      context: null
+    };
+  }
   
   const context = await getUserContext(supabase, userId);
   const { preferences, health, profile, currentHour, recentActions, memories, userModel } = context;
@@ -454,40 +595,38 @@ GUIDELINES:
 Analyze the situation and decide what actions (if any) to take.`;
 
   try {
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${Deno.env.get("LOVABLE_API_KEY")}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: `Analyze the current situation and decide what actions to take based on the ${triggerType} trigger.` }
-        ],
-        tools: agentTools,
-        tool_choice: "auto"
-      })
+    console.log("[Agent Brain] Request start", {
+      userId,
+      triggerType,
+      hasGeminiApiKey: !!geminiApiKey,
+      autonomyLevel: preferences.autonomy_level,
     });
 
-    if (!response.ok) {
-      throw new Error(`AI API error: ${response.status}`);
+    const aiResponse = await callGemini({
+      apiKey: geminiApiKey,
+      systemPrompt,
+      userPrompt: `Analyze the current situation and decide what actions to take based on the ${triggerType} trigger.`,
+    });
+
+    const toolCalls = extractGeminiFunctionCalls(aiResponse);
+    const textResponse = extractGeminiText(aiResponse);
+
+    console.log("[Agent Brain] Gemini parsing complete", {
+      textPreview: trimForLog(textResponse || "Tool calls only"),
+      toolCallCount: toolCalls.length,
+    });
+
+    if (!textResponse && toolCalls.length === 0) {
+      console.error("[Agent Brain] Gemini response did not include text or tool calls", aiResponse);
+      throw new Error("Invalid Gemini response");
     }
-
-    const aiResponse = await response.json();
-    const choice = aiResponse.choices?.[0];
-    const toolCalls = choice?.message?.tool_calls;
-    const textResponse = choice?.message?.content;
-
-    console.log(`[Agent Brain] AI response: ${textResponse || 'Tool calls only'}`);
 
     const executedActions: any[] = [];
 
     if (toolCalls && toolCalls.length > 0) {
       for (const toolCall of toolCalls) {
-        const toolName = toolCall.function.name;
-        const args = JSON.parse(toolCall.function.arguments || '{}');
+        const toolName = toolCall.name;
+        const args = toolCall.args;
         
         console.log(`[Agent Brain] Executing tool: ${toolName}`, args);
         

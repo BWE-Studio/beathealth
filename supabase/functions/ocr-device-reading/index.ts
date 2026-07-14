@@ -32,17 +32,27 @@ serve(async (req) => {
   try {
     const { imageBase64, deviceHint } = await req.json();
 
+    console.log("[OCR][Edge] Request received", {
+      method: req.method,
+      deviceHint,
+      hasImage: !!imageBase64,
+      imageBase64Length: typeof imageBase64 === "string" ? imageBase64.length : null,
+      imageBase64Prefix: typeof imageBase64 === "string" ? imageBase64.slice(0, 80) : null,
+    });
+
     if (!imageBase64) {
+      console.log("[OCR][Edge] Rejecting request: no image provided");
       return new Response(
         JSON.stringify({ success: false, error: "No image provided" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
+    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    if (!GEMINI_API_KEY) {
+      console.error("[OCR][Edge] GEMINI_API_KEY is not configured");
       return new Response(
-        JSON.stringify({ success: false, error: "API key not configured" }),
+        JSON.stringify({ success: false, error: "Gemini API key not configured" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -90,70 +100,146 @@ Return your analysis as a JSON object with this structure:
       ? `Extract the readings from this ${deviceHint} device photo. Focus on the digital display.`
       : `Identify this medical device and extract all visible readings from the display.`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const image = parseImageInput(imageBase64);
+    const requestBody = {
+      system_instruction: {
+        parts: [{ text: systemPrompt }],
+      },
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { text: userPrompt },
+            {
+              inline_data: {
+                mime_type: image.mimeType,
+                data: image.data,
+              },
+            },
+          ],
+        },
+      ],
+      generationConfig: {
+        maxOutputTokens: 1000,
+        temperature: 0.1,
+        response_mime_type: "application/json",
+      },
+    };
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+    console.log("[OCR][Edge] Calling Gemini API", {
+      endpoint: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+      model: "gemini-2.5-flash",
+      deviceHint,
+      userPrompt,
+      mimeType: image.mimeType,
+      imageBase64Length: image.data.length,
+      imageBase64Prefix: image.data.slice(0, 40),
+    });
+
+    const response = await fetch(geminiUrl, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: userPrompt },
-              {
-                type: "image_url",
-                image_url: {
-                  url: imageBase64.startsWith("data:") ? imageBase64 : `data:image/jpeg;base64,${imageBase64}`,
-                },
-              },
-            ],
-          },
-        ],
-        max_tokens: 1000,
-      }),
+      body: JSON.stringify(requestBody),
+    });
+
+    console.log("[OCR][Edge] Gemini response status", {
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+    });
+
+    const responseText = await response.text();
+    console.log("[OCR][Edge] Gemini response body", {
+      bodyPreview: trimForLog(responseText),
+      bodyLength: responseText.length,
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error("AI Gateway error:", response.status, errorText);
-      
+      console.error("[OCR][Edge] Gemini API error:", {
+        status: response.status,
+        statusText: response.statusText,
+        errorText: trimForLog(responseText),
+      });
+
+      if (response.status === 401) {
+        return new Response(
+          JSON.stringify({ success: false, error: "Gemini API unauthorized. Check GEMINI_API_KEY." }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      if (response.status === 403) {
+        return new Response(
+          JSON.stringify({ success: false, error: "Gemini API permission denied." }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
       if (response.status === 429) {
         return new Response(
-          JSON.stringify({ success: false, error: "Rate limit exceeded. Please try again." }),
+          JSON.stringify({ success: false, error: "Gemini quota exhausted. Please try again." }),
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ success: false, error: "Service quota exceeded." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      
+
       return new Response(
         JSON.stringify({ success: false, error: "Failed to analyze image" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const aiResponse = await response.json();
-    const content = aiResponse.choices?.[0]?.message?.content || "";
+    let aiResponse: any;
+    try {
+      aiResponse = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error("[OCR][Edge] Invalid Gemini JSON response:", {
+        parseError,
+        responsePreview: trimForLog(responseText),
+      });
+      return new Response(
+        JSON.stringify({ success: false, error: "Invalid Gemini response" }),
+        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const content = extractGeminiText(aiResponse);
+    if (!content) {
+      console.error("[OCR][Edge] Gemini response did not include text content", {
+        aiResponse,
+      });
+      return new Response(
+        JSON.stringify({ success: false, error: "Invalid Gemini response" }),
+        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    console.log("[OCR][Edge] AI response payload", {
+      aiResponse,
+      content,
+      contentLength: content.length,
+    });
 
     // Extract JSON from the response
     let ocrData: any = {};
     try {
       const jsonMatch = content.match(/\{[\s\S]*\}/);
+      console.log("[OCR][Edge] JSON extraction result", {
+        hasJsonMatch: !!jsonMatch,
+        jsonPreview: jsonMatch?.[0]?.slice(0, 500),
+      });
       if (jsonMatch) {
         ocrData = JSON.parse(jsonMatch[0]);
       }
+      console.log("[OCR][Edge] Parsed OCR JSON", ocrData);
     } catch (parseError) {
-      console.error("JSON parse error:", parseError);
+      console.error("[OCR][Edge] JSON parse error:", parseError);
       // Try to extract numbers manually
       const numbers = content.match(/\d+/g)?.map(Number) || [];
+      console.log("[OCR][Edge] Manual number extraction fallback", {
+        numbers,
+      });
       if (numbers.length >= 2) {
         const sorted = [...numbers].sort((a, b) => b - a);
         ocrData = {
@@ -193,13 +279,13 @@ Return your analysis as a JSON object with this structure:
       result.readings.measurement_type = hour < 10 ? "fasting" : "random";
     }
 
-    console.log("OCR Result:", result);
+    console.log("[OCR][Edge] Final OCR result:", result);
 
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
-    console.error("OCR error:", error);
+    console.error("[OCR][Edge] OCR exception:", error);
     return new Response(
       JSON.stringify({ 
         success: false, 
@@ -209,6 +295,37 @@ Return your analysis as a JSON object with this structure:
     );
   }
 });
+
+function parseImageInput(imageBase64: string): { mimeType: string; data: string } {
+  const dataUrlMatch = imageBase64.match(/^data:([^;]+);base64,(.*)$/);
+  if (dataUrlMatch) {
+    return {
+      mimeType: dataUrlMatch[1],
+      data: dataUrlMatch[2],
+    };
+  }
+
+  return {
+    mimeType: "image/jpeg",
+    data: imageBase64,
+  };
+}
+
+function extractGeminiText(response: any): string {
+  const parts = response?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) return "";
+
+  return parts
+    .map((part) => part?.text)
+    .filter((text) => typeof text === "string")
+    .join("\n")
+    .trim();
+}
+
+function trimForLog(value: string, maxLength = 4000): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength)}... [trimmed ${value.length - maxLength} chars]`;
+}
 
 function validateNumber(value: any, min: number, max: number): number | undefined {
   const num = Number(value);

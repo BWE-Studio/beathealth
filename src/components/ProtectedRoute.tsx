@@ -2,6 +2,7 @@ import { ReactNode, useEffect, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Logo } from "@/components/Logo";
+import { useAuth } from "@/hooks/useAuth";
 
 interface ProtectedRouteProps {
   children: ReactNode;
@@ -10,52 +11,50 @@ interface ProtectedRouteProps {
 
 export const ProtectedRoute = ({ children, requireAdmin = false }: ProtectedRouteProps) => {
   const location = useLocation();
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const { user, loading: authLoading, isAuthenticated } = useAuth();
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isCheckingAdmin, setIsCheckingAdmin] = useState(false);
 
   useEffect(() => {
-    const checkAuth = async () => {
+    if (!requireAdmin || authLoading || !user?.id) {
+      setIsAdmin(false);
+      setIsCheckingAdmin(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const checkAdmin = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        
-        if (!session) {
-          setIsAuthenticated(false);
-          setIsLoading(false);
-          return;
-        }
+        setIsCheckingAdmin(true);
+        const { data: hasAdminRole } = await supabase.rpc("has_role", {
+          _user_id: user.id,
+          _role: "admin",
+        });
 
-        setIsAuthenticated(true);
-
-        if (requireAdmin) {
-          const { data: hasAdminRole } = await supabase.rpc("has_role", {
-            _user_id: session.user.id,
-            _role: "admin",
-          });
+        if (!cancelled) {
           setIsAdmin(!!hasAdminRole);
         }
-
-        setIsLoading(false);
       } catch (error) {
-        console.error("Auth check error:", error);
-        setIsAuthenticated(false);
-        setIsLoading(false);
+        console.error("Admin check error:", error);
+        if (!cancelled) {
+          setIsAdmin(false);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsCheckingAdmin(false);
+        }
       }
     };
 
-    checkAuth();
+    checkAdmin();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      setIsAuthenticated(!!session);
-      if (!session) {
-        setIsAdmin(false);
-      }
-    });
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, requireAdmin, user?.id]);
 
-    return () => subscription.unsubscribe();
-  }, [requireAdmin]);
-
-  if (isLoading) {
+  if (authLoading || isCheckingAdmin) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-background">
         <div className="flex flex-col items-center gap-4">

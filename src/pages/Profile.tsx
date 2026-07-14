@@ -32,6 +32,7 @@ import { LabTestTracker } from "@/components/LabTestTracker";
 import { AppointmentManager } from "@/components/AppointmentManager";
 import { ReferralProgram } from "@/components/ReferralProgram";
 import { WhatsAppSetup } from "@/components/WhatsAppSetup";
+import { useAuth } from "@/hooks/useAuth";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -46,6 +47,7 @@ import {
 
 const Profile = () => {
   const navigate = useNavigate();
+  const { user, loading: authLoading } = useAuth();
   const { subscription, isPremium, createCheckout, isCreatingCheckout } = useSubscription();
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -62,6 +64,7 @@ const Profile = () => {
     weight_kg: "",
     height_cm: "",
     date_of_birth: "",
+    gender: "",
     has_diabetes: false,
     has_hypertension: false,
     has_heart_disease: false,
@@ -79,17 +82,20 @@ const Profile = () => {
   });
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (authLoading) return;
+    if (!user?.id) {
+      setLoading(false);
+      return;
+    }
 
-  const fetchData = async () => {
+    fetchData(user.id);
+  }, [authLoading, user?.id]);
+
+  const fetchData = async (userId: string) => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
       const [profileRes, notifRes] = await Promise.all([
-        supabase.from("profiles").select("*").eq("id", user.id).single(),
-        supabase.from("notification_preferences").select("*").eq("user_id", user.id).maybeSingle(),
+        supabase.from("profiles").select("*").eq("id", userId).single(),
+        supabase.from("notification_preferences").select("*").eq("user_id", userId).maybeSingle(),
       ]);
 
       if (profileRes.data) {
@@ -101,6 +107,7 @@ const Profile = () => {
           weight_kg: profileRes.data.weight_kg?.toString() || "",
           height_cm: profileRes.data.height_cm?.toString() || "",
           date_of_birth: profileRes.data.date_of_birth || "",
+          gender: profileRes.data.gender || "",
           has_diabetes: profileRes.data.has_diabetes || false,
           has_hypertension: profileRes.data.has_hypertension || false,
           has_heart_disease: profileRes.data.has_heart_disease || false,
@@ -162,7 +169,7 @@ const Profile = () => {
         .eq('id', user.id);
 
       toast.success("Profile photo updated");
-      fetchData();
+      fetchData(user.id);
     } catch (error) {
       console.error("Error uploading avatar:", error);
       toast.error("Failed to upload photo");
@@ -177,13 +184,14 @@ const Profile = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      await Promise.all([
+      const [profileUpdate, notificationUpdate] = await Promise.all([
         supabase.from("profiles").update({
           full_name: formData.full_name || null,
           phone: formData.phone || null,
           weight_kg: formData.weight_kg ? parseFloat(formData.weight_kg) : null,
           height_cm: formData.height_cm ? parseInt(formData.height_cm) : null,
           date_of_birth: formData.date_of_birth || null,
+          gender: formData.gender || null,
           has_diabetes: formData.has_diabetes,
           has_hypertension: formData.has_hypertension,
           has_heart_disease: formData.has_heart_disease,
@@ -196,10 +204,14 @@ const Profile = () => {
         supabase.from("notification_preferences").upsert({
           user_id: user.id,
           ...notificationSettings,
-        }),
+        }, { onConflict: "user_id" }),
       ]);
 
+      if (profileUpdate.error) throw profileUpdate.error;
+      if (notificationUpdate.error) throw notificationUpdate.error;
+
       toast.success("Profile saved successfully");
+      fetchData(user.id);
     } catch (error) {
       console.error("Error saving profile:", error);
       toast.error("Failed to save profile");
@@ -247,25 +259,32 @@ const Profile = () => {
 
   const handleDeleteAccount = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-      // Delete all user data
-      await Promise.all([
-        supabase.from("bp_logs").delete().eq("user_id", user.id),
-        supabase.from("sugar_logs").delete().eq("user_id", user.id),
-        supabase.from("behavior_logs").delete().eq("user_id", user.id),
-        supabase.from("medications").delete().eq("user_id", user.id),
-        supabase.from("streaks").delete().eq("user_id", user.id),
-        supabase.from("achievements").delete().eq("user_id", user.id),
-        supabase.from("profiles").delete().eq("id", user.id),
-      ]);
+      if (!session) {
+        toast.error("No active session found");
+        return;
+      }
+
+      const { error } = await supabase.functions.invoke(
+        "delete-user",
+        {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        }
+      );
+
+      if (error) throw error;
 
       await supabase.auth.signOut();
-      toast.success("Account deleted. We're sorry to see you go.");
+
+      toast.success("Account deleted successfully");
       navigate("/");
     } catch (error) {
-      console.error("Error deleting account:", error);
+      console.error("Delete account error:", error);
       toast.error("Failed to delete account");
     }
   };
@@ -372,7 +391,7 @@ const Profile = () => {
               </div>
             </div>
 
-            <div className="grid md:grid-cols-3 gap-4">
+            <div className="grid md:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="weight_kg">Weight (kg)</Label>
                 <Input
@@ -401,6 +420,21 @@ const Profile = () => {
                   value={formData.date_of_birth}
                   onChange={(e) => setFormData({ ...formData, date_of_birth: e.target.value })}
                 />
+              </div>
+              <div>
+                <Label htmlFor="gender">Gender</Label>
+                <select
+                  id="gender"
+                  value={formData.gender}
+                  onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
+                  className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
+                >
+                  <option value="">Prefer not to say</option>
+                  <option value="female">Female</option>
+                  <option value="male">Male</option>
+                  <option value="non_binary">Non-binary</option>
+                  <option value="other">Other</option>
+                </select>
               </div>
             </div>
 

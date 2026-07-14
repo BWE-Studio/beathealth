@@ -22,9 +22,13 @@ serve(async (req) => {
   }
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY not configured');
+    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    if (!GEMINI_API_KEY) {
+      console.error("[MealAI] GEMINI_API_KEY is not configured");
+      return new Response(
+        JSON.stringify({ error: "Gemini API key not configured" }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     // Parse and validate input
@@ -69,68 +73,121 @@ Respond ONLY with valid JSON in this exact format:
   "healthTip": "Adding more vegetables to your meal can help reduce blood sugar spikes."
 }`;
 
-    const userContent: any[] = [];
-    
+    const userParts: any[] = [];
+
     if (imageBase64) {
-      userContent.push({
-        type: "image_url",
-        image_url: {
-          url: imageBase64,
+      const image = parseImageInput(imageBase64);
+      userParts.push({
+        inline_data: {
+          mime_type: image.mimeType,
+          data: image.data,
         },
       });
     }
-    
-    userContent.push({
-      type: "text",
+
+    userParts.push({
       text: `Analyze this ${mealType} meal.${description ? ` Description: ${description}` : ''} Provide detailed nutritional breakdown.`,
     });
 
-    console.log('Calling Lovable AI for meal analysis...');
+    const requestBody = {
+      system_instruction: {
+        parts: [{ text: systemPrompt }],
+      },
+      contents: [
+        {
+          role: "user",
+          parts: userParts,
+        },
+      ],
+      generationConfig: {
+        maxOutputTokens: 1000,
+        temperature: 0.1,
+        response_mime_type: "application/json",
+      },
+    };
 
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    console.log("[MealAI] Calling Gemini API", {
+      endpoint: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+      model: "gemini-2.5-flash",
+      mealType,
+      hasImage: !!imageBase64,
+      hasDescription: !!description,
+      imageBase64Length: imageBase64?.length ?? null,
+    });
+
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userContent },
-        ],
-        max_tokens: 1000,
-      }),
+      body: JSON.stringify(requestBody),
+    });
+
+    console.log("[MealAI] Gemini response status", {
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+    });
+
+    const responseText = await response.text();
+    console.log("[MealAI] Gemini response body", {
+      bodyPreview: trimForLog(responseText),
+      bodyLength: responseText.length,
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('AI API error:', response.status, errorText);
-      
+      console.error("[MealAI] Gemini API error", {
+        status: response.status,
+        statusText: response.statusText,
+        errorText: trimForLog(responseText),
+      });
+
+      if (response.status === 401) {
+        return new Response(
+          JSON.stringify({ error: 'Gemini API unauthorized. Check GEMINI_API_KEY.' }),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      if (response.status === 403) {
+        return new Response(
+          JSON.stringify({ error: 'Gemini API permission denied.' }),
+          { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
       if (response.status === 429) {
         return new Response(
-          JSON.stringify({ error: 'Rate limit exceeded. Please try again in a moment.' }),
+          JSON.stringify({ error: 'Gemini quota exhausted. Please try again in a moment.' }),
           { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: 'AI credits exhausted. Please contact support.' }),
-          { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-      
+
       throw new Error(`AI API error: ${response.status}`);
     }
 
-    const aiResponse = await response.json();
-    const content = aiResponse.choices?.[0]?.message?.content;
+    let aiResponse: any;
+    try {
+      aiResponse = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error("[MealAI] Invalid Gemini JSON response:", {
+        parseError,
+        responsePreview: trimForLog(responseText),
+      });
+      throw new Error("Invalid Gemini response");
+    }
+
+    const content = extractGeminiText(aiResponse);
 
     if (!content) {
+      console.error("[MealAI] Gemini response did not include text content", {
+        aiResponse,
+      });
       throw new Error('No response from AI');
     }
 
-    console.log('AI response:', content);
+    console.log("[MealAI] Gemini text response", {
+      contentPreview: trimForLog(content),
+      contentLength: content.length,
+    });
 
     // Parse the JSON response
     let analysis;
@@ -143,7 +200,10 @@ Respond ONLY with valid JSON in this exact format:
       }
       analysis = JSON.parse(jsonStr);
     } catch (parseError) {
-      console.error('Failed to parse AI response:', parseError);
+      console.error("[MealAI] Failed to parse Gemini response:", {
+        parseError,
+        contentPreview: trimForLog(content),
+      });
       // Provide fallback response
       analysis = {
         items: [{
@@ -186,3 +246,34 @@ Respond ONLY with valid JSON in this exact format:
     );
   }
 });
+
+function parseImageInput(imageBase64: string): { mimeType: string; data: string } {
+  const dataUrlMatch = imageBase64.match(/^data:([^;]+);base64,(.*)$/);
+  if (dataUrlMatch) {
+    return {
+      mimeType: dataUrlMatch[1],
+      data: dataUrlMatch[2],
+    };
+  }
+
+  return {
+    mimeType: "image/jpeg",
+    data: imageBase64,
+  };
+}
+
+function extractGeminiText(response: any): string {
+  const parts = response?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) return "";
+
+  return parts
+    .map((part) => part?.text)
+    .filter((text) => typeof text === "string")
+    .join("\n")
+    .trim();
+}
+
+function trimForLog(value: string, maxLength = 4000): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength)}... [trimmed ${value.length - maxLength} chars]`;
+}

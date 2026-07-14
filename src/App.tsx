@@ -2,6 +2,7 @@ import { Toaster as SonnerToaster } from "sonner";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { useEffect } from "react";
+import { Capacitor } from "@capacitor/core";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { AccessibilityProvider } from "@/contexts/AccessibilityContext";
@@ -13,6 +14,8 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider } from "@/hooks/useAuth";
 import { lazy, Suspense } from "react";
+import RootRedirect from "@/components/RootRedirect";
+import { NativeAuthRedirectHandler } from "@/components/NativeAuthRedirectHandler";
 
 // Lazy load pages
 const Landing = lazy(() => import("./pages/Landing"));
@@ -88,6 +91,7 @@ const AppContent = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const showBottomNav = location.pathname.startsWith("/app/");
+  const isAndroidNative = Capacitor.getPlatform() === "android";
 
   // Scroll to top on route change
   useEffect(() => {
@@ -98,11 +102,11 @@ const AppContent = () => {
 
   return (
     <>
-      <CinematicBackground />
+      {!isAndroidNative && <CinematicBackground />}
       <Suspense fallback={<LoadingFallback />}>
         <PageTransition key={location.pathname}>
           <Routes location={location}>
-            <Route path="/" element={<Landing />} />
+            <Route path="/" element={<RootRedirect />} />
             <Route path="/about" element={<About />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />
@@ -158,6 +162,7 @@ const App = () => (
             <PWAInstallPrompt />
             <BrowserRouter>
               <AuthProvider>
+                <NativeAuthRedirectHandler />
                 <AppContent />
               </AuthProvider>
             </BrowserRouter>

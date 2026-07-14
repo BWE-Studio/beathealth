@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext, ReactNode } from "react";
+import { useState, useEffect, useRef, createContext, useContext, ReactNode } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -16,22 +16,64 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const validationRunRef = useRef(0);
 
   useEffect(() => {
+    const clearAuthState = () => {
+      validationRunRef.current += 1;
+      setSession(null);
+      setUser(null);
+      setLoading(false);
+    };
+
+    const validateSession = async (nextSession: Session | null) => {
+      const runId = validationRunRef.current + 1;
+      validationRunRef.current = runId;
+
+      if (!nextSession) {
+        setSession(null);
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+
+      const { data, error } = await supabase.auth.getUser();
+      if (validationRunRef.current !== runId) return;
+
+      if (error || !data.user) {
+        await supabase.auth.signOut({ scope: "local" });
+        if (validationRunRef.current !== runId) return;
+
+        setSession(null);
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+
+      setSession(nextSession);
+      setUser(data.user);
+      setLoading(false);
+    };
+
     // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        setLoading(false);
+        if (!session) {
+          clearAuthState();
+          return;
+        }
+
+        setTimeout(() => {
+          void validateSession(session);
+        }, 0);
       }
     );
 
     // THEN check for existing session
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
+      void validateSession(session);
     });
 
     return () => subscription.unsubscribe();

@@ -7,6 +7,7 @@ import { User, Settings, LogOut, Activity } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { FitnessTrackerConnection } from "./FitnessTrackerConnection";
+import { useAuth } from "@/hooks/useAuth";
 import {
   Dialog,
   DialogContent,
@@ -17,22 +18,27 @@ import {
 
 export const ProfileSection = () => {
   const navigate = useNavigate();
+  const { user, loading: authLoading } = useAuth();
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchProfile();
-  }, []);
+    if (authLoading) return;
+    if (!user?.id) {
+      setLoading(false);
+      setProfile(null);
+      return;
+    }
 
-  const fetchProfile = async () => {
+    fetchProfile(user.id);
+  }, [authLoading, user?.id]);
+
+  const fetchProfile = async (userId: string) => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
       const { data, error } = await supabase
         .from("profiles")
         .select("*")
-        .eq("id", user.id)
+        .eq("id", userId)
         .single();
 
       if (error) throw error;

@@ -7,6 +7,91 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+
+function trimForLog(value: string, maxLength = 1200): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength)}... [trimmed ${value.length - maxLength} chars]`;
+}
+
+function extractGeminiText(data: any): string {
+  return data?.candidates?.[0]?.content?.parts
+    ?.map((part: any) => part.text || "")
+    .filter(Boolean)
+    .join("") || "";
+}
+
+async function callGemini(params: {
+  apiKey: string;
+  systemPrompt: string;
+  userPrompt: string;
+}) {
+  const requestBody = {
+    system_instruction: {
+      parts: [{ text: params.systemPrompt }],
+    },
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: params.userPrompt }],
+      },
+    ],
+    generationConfig: {
+      temperature: 0.7,
+      maxOutputTokens: 1000,
+    },
+  };
+
+  console.log("[generate-insights] Calling Gemini", {
+    endpoint: GEMINI_ENDPOINT,
+    model: "gemini-2.5-flash",
+    contentsCount: requestBody.contents.length,
+  });
+
+  const response = await fetch(`${GEMINI_ENDPOINT}?key=${params.apiKey}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  console.log("[generate-insights] Gemini response status", {
+    ok: response.ok,
+    status: response.status,
+    statusText: response.statusText,
+  });
+
+  const responseText = await response.text();
+  console.log("[generate-insights] Gemini response preview", {
+    bodyPreview: trimForLog(responseText),
+    bodyLength: responseText.length,
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error("Gemini API unauthorized. Check GEMINI_API_KEY.");
+    }
+    if (response.status === 403) {
+      throw new Error("Gemini API permission denied.");
+    }
+    if (response.status === 429) {
+      throw new Error("Gemini quota exhausted.");
+    }
+    throw new Error(`Gemini API error: ${response.status}`);
+  }
+
+  try {
+    return JSON.parse(responseText);
+  } catch (error) {
+    console.error("[generate-insights] Invalid Gemini JSON response", {
+      error,
+      responsePreview: trimForLog(responseText),
+    });
+    throw new Error("Invalid Gemini response");
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -18,6 +103,8 @@ serve(async (req) => {
       throw new Error('No authorization header');
     }
 
+    console.log("[generate-insights] Request start");
+
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey, {
@@ -26,6 +113,17 @@ serve(async (req) => {
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Not authenticated');
+
+    const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
+    if (!GEMINI_API_KEY) {
+      console.error("[generate-insights] GEMINI_API_KEY is not configured");
+      throw new Error("GEMINI_API_KEY not configured");
+    }
+
+    console.log("[generate-insights] Authenticated request", {
+      userId: user.id,
+      hasGeminiApiKey: !!GEMINI_API_KEY,
+    });
 
     // Check rate limit (10 insight generations per hour)
     const supabaseAdmin = createClient(
@@ -119,32 +217,29 @@ CRITICAL SAFETY RULES:
 - If BP ≥140/90 or sugar ≥126 (fasting) consistently, recommend consulting a doctor
 - Keep recommendations under 300 words total`;
 
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) throw new Error('LOVABLE_API_KEY not configured');
-
-    const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Analyze this health data and provide insights:\n\n${healthContext}` }
-        ],
-      }),
+    console.log("[generate-insights] Gemini insight request start", {
+      bpReadings: bpLogs.length,
+      sugarReadings: sugarLogs.length,
+      behaviorLogs: behaviorLogs.length,
+      heartScores: heartScores.length,
     });
 
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      console.error('Lovable AI error:', aiResponse.status, errorText);
-      throw new Error('Failed to generate insights');
-    }
+    const aiData = await callGemini({
+      apiKey: GEMINI_API_KEY,
+      systemPrompt,
+      userPrompt: `Analyze this health data and provide insights:\n\n${healthContext}`,
+    });
 
-    const aiData = await aiResponse.json();
-    const insights = aiData.choices[0].message.content;
+    const insights = extractGeminiText(aiData);
+    console.log("[generate-insights] Gemini parsing complete", {
+      textPreview: trimForLog(insights),
+      textLength: insights.length,
+    });
+
+    if (!insights) {
+      console.error("[generate-insights] Gemini response did not include text", aiData);
+      throw new Error("Invalid Gemini response");
+    }
 
     // Calculate correlations
     const correlations = {

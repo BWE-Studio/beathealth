@@ -13,6 +13,8 @@ const requestSchema = z.object({
   analysisType: z.enum(['full', 'quick', 'targeted']).optional().default('full'),
 });
 
+const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+
 interface HealthContext {
   profile: any;
   conditions: string[];
@@ -162,10 +164,93 @@ function analyzeVitalTrends(context: HealthContext) {
   return trends;
 }
 
+function trimForLog(value: string, maxLength = 1200): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength)}... [trimmed ${value.length - maxLength} chars]`;
+}
+
+function extractGeminiText(data: any): string {
+  return data?.candidates?.[0]?.content?.parts
+    ?.map((part: any) => part.text || "")
+    .filter(Boolean)
+    .join("") || "";
+}
+
+async function callGemini(params: {
+  apiKey: string;
+  systemPrompt: string;
+  userPrompt: string;
+}) {
+  const requestBody = {
+    system_instruction: {
+      parts: [{ text: params.systemPrompt }],
+    },
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: params.userPrompt }],
+      },
+    ],
+    generationConfig: {
+      temperature: 0.4,
+      maxOutputTokens: 2000,
+    },
+  };
+
+  console.log("[reasoning-engine] Calling Gemini", {
+    endpoint: GEMINI_ENDPOINT,
+    model: "gemini-2.5-flash",
+    contentsCount: requestBody.contents.length,
+  });
+
+  const response = await fetch(`${GEMINI_ENDPOINT}?key=${params.apiKey}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  console.log("[reasoning-engine] Gemini response status", {
+    ok: response.ok,
+    status: response.status,
+    statusText: response.statusText,
+  });
+
+  const responseText = await response.text();
+  console.log("[reasoning-engine] Gemini response preview", {
+    bodyPreview: trimForLog(responseText),
+    bodyLength: responseText.length,
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error("Gemini API unauthorized. Check GEMINI_API_KEY.");
+    }
+    if (response.status === 403) {
+      throw new Error("Gemini API permission denied.");
+    }
+    if (response.status === 429) {
+      throw new Error("Gemini quota exhausted.");
+    }
+    throw new Error(`Gemini API error: ${response.status}`);
+  }
+
+  try {
+    return JSON.parse(responseText);
+  } catch (error) {
+    console.error("[reasoning-engine] Invalid Gemini JSON response", {
+      error,
+      responsePreview: trimForLog(responseText),
+    });
+    throw new Error("Invalid Gemini response");
+  }
+}
+
 async function performMultiConditionAnalysis(
   context: HealthContext,
   trends: any,
-  LOVABLE_API_KEY: string
+  geminiApiKey: string
 ): Promise<any> {
   const systemPrompt = `You are an advanced health AI analyzing a patient with multiple conditions.
 
@@ -216,29 +301,28 @@ Analyze comprehensively and respond with JSON:
 }`;
 
   try {
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: 'Perform comprehensive multi-condition health analysis and provide actionable insights.' },
-        ],
-        max_tokens: 2000,
-      }),
+    console.log("[reasoning-engine] Gemini analysis request start", {
+      conditions: context.conditions,
+      bpStatus: trends.bp.status,
+      sugarStatus: trends.sugar.status,
     });
 
-    if (!response.ok) {
-      console.error('AI API error:', response.status);
-      throw new Error('AI analysis failed');
-    }
+    const aiResponse = await callGemini({
+      apiKey: geminiApiKey,
+      systemPrompt,
+      userPrompt: 'Perform comprehensive multi-condition health analysis and provide actionable insights.',
+    });
 
-    const aiResponse = await response.json();
-    const content = aiResponse.choices?.[0]?.message?.content;
+    const content = extractGeminiText(aiResponse);
+    console.log("[reasoning-engine] Gemini parsing complete", {
+      textPreview: trimForLog(content),
+      textLength: content.length,
+    });
+
+    if (!content) {
+      console.error("[reasoning-engine] Gemini response did not include text", aiResponse);
+      throw new Error("Invalid Gemini response");
+    }
 
     // Parse JSON from response
     let jsonStr = content;
@@ -304,9 +388,10 @@ serve(async (req) => {
       );
     }
 
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY not configured');
+    const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
+    if (!GEMINI_API_KEY) {
+      console.error('[reasoning-engine] GEMINI_API_KEY is not configured');
+      throw new Error('GEMINI_API_KEY not configured');
     }
 
     // Parse and validate input
@@ -335,7 +420,12 @@ serve(async (req) => {
       console.log(`[reasoning-engine] Caregiver ${user.id} authorized to analyze ${userId}`);
     }
 
-    console.log(`[reasoning-engine] Running ${analysisType} analysis for user: ${userId}`);
+    console.log('[reasoning-engine] Request start', {
+      analysisType,
+      userId,
+      authenticatedUserId: user.id,
+      hasGeminiApiKey: !!GEMINI_API_KEY,
+    });
 
     // Now safe to use service role for operations
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -349,7 +439,7 @@ serve(async (req) => {
     const trends = analyzeVitalTrends(context);
 
     // Perform AI-powered multi-condition analysis
-    const analysis = await performMultiConditionAnalysis(context, trends, LOVABLE_API_KEY);
+    const analysis = await performMultiConditionAnalysis(context, trends, GEMINI_API_KEY);
 
     // Save analysis to database
     await supabase.from('condition_analysis').insert({

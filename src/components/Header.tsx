@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { FitnessTrackerConnection } from "@/components/FitnessTrackerConnection";
 import { AlertsDrawer } from "@/components/AlertsDrawer";
+import { useAuth } from "@/hooks/useAuth";
 import {
   Dialog,
   DialogContent,
@@ -45,6 +46,7 @@ import {
 
 export const Header = () => {
   const navigate = useNavigate();
+  const { user, loading: authLoading } = useAuth();
   const { t, language, setLanguage } = useLanguage();
   const { textSize, setTextSize } = useAccessibility();
   const { theme, setTheme } = useTheme();
@@ -60,18 +62,23 @@ export const Header = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    fetchProfile();
-  }, []);
+    if (authLoading) return;
+    if (!user?.id) {
+      setProfile(null);
+      return;
+    }
 
-  const fetchProfile = async () => {
+    fetchProfile(user.id);
+  }, [authLoading, user?.id]);
+
+  const fetchProfile = async (userId = user?.id) => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!userId) return;
 
       const { data, error } = await supabase
         .from("profiles")
         .select("*")
-        .eq("id", user.id)
+        .eq("id", userId)
         .single();
 
       if (error) throw error;
@@ -134,7 +141,7 @@ export const Header = () => {
       if (updateError) throw updateError;
 
       toast.success("Profile photo updated");
-      fetchProfile();
+      fetchProfile(user.id);
     } catch (error) {
       console.error("Error uploading avatar:", error);
       toast.error("Failed to upload photo");
@@ -161,7 +168,7 @@ export const Header = () => {
       
       toast.success("Profile updated successfully");
       setIsEditingProfile(false);
-      fetchProfile();
+      fetchProfile(user.id);
     } catch (error) {
       console.error("Error updating profile:", error);
       toast.error("Failed to update profile");
@@ -187,7 +194,8 @@ export const Header = () => {
     .toUpperCase() || "U";
 
   return (
-    <header className="border-b bg-card/95 backdrop-blur-md shadow-sm sticky top-0 z-10 transition-all">
+    <header className="border-b bg-card/95 backdrop-blur-md shadow-sm sticky top-0 z-10 transition-all" 
+            style={{ paddingTop: "env(safe-area-inset-top)" }} >
       <div className="container mx-auto px-4 py-3 md:py-4 flex items-center justify-between">
         <Logo size="md" />
         

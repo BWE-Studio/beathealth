@@ -5,7 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable";
+import { getAuthRedirectUrl, isNativePlatform, openNativeOAuthUrl } from "@/lib/nativeAuth";
+// import { lovable } from "@/integrations/lovable";
 import { toast } from "sonner";
 import { Logo } from "@/components/Logo";
 import { ArrowRight, Loader2, Mail, ArrowLeft, Sparkles } from "lucide-react";
@@ -74,14 +75,15 @@ const Auth = () => {
         const { error } = await supabase.auth.signUp({
           email: emailValidation.data,
           password: passwordValidation.data,
-          options: { emailRedirectTo: `${window.location.origin}/app/home` },
+          options: { emailRedirectTo: getAuthRedirectUrl("/app/home") },
         });
         if (error) throw error;
         toast.success(language === "hi" ? "खाता बन गया!" : "Account created! Logging you in...");
         navigate("/app/home");
       }
-    } catch (error: any) {
-      toast.error(error.message || (language === "hi" ? "प्रमाणीकरण विफल" : "Authentication failed"));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : language === "hi" ? "प्रमाणीकरण विफल": "Authentication failed";
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -103,14 +105,15 @@ const Auth = () => {
       const { error } = await supabase.auth.signInWithOtp({
         email: emailValidation.data,
         options: {
-          emailRedirectTo: `${window.location.origin}/app/home`,
+          emailRedirectTo: getAuthRedirectUrl("/app/home"),
         },
       });
       if (error) throw error;
       setMagicLinkSent(true);
       toast.success(language === "hi" ? "मैजिक लिंक भेजा गया!" : "Magic link sent! Check your email.");
-    } catch (error: any) {
-      toast.error(error.message || (language === "hi" ? "लिंक भेजने में विफल" : "Failed to send magic link"));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : language === "hi" ?  "लिंक भेजने में विफल" : "Failed to send magic link"
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -130,13 +133,14 @@ const Auth = () => {
 
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(emailValidation.data, {
-        redirectTo: `${window.location.origin}/auth?mode=update-password`,
+        redirectTo: getAuthRedirectUrl("/auth?mode=update-password"),
       });
       if (error) throw error;
       setResetSent(true);
       toast.success(language === "hi" ? "रीसेट लिंक भेजा गया!" : "Reset link sent! Check your email.");
-    } catch (error: any) {
-      toast.error(error.message || (language === "hi" ? "रीसेट लिंक भेजने में विफल" : "Failed to send reset link"));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : (language === "hi" ? "रीसेट लिंक भेजने में विफल" : "Failed to send reset link")
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -145,12 +149,28 @@ const Auth = () => {
   const handleGoogleSignIn = async () => {
     setLoading(true);
     try {
-      const { error } = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: window.location.origin,
+      if (isNativePlatform()) {
+        await supabase.auth.signOut({ scope: "local" });
+      }
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: getAuthRedirectUrl("/app/home"),
+          skipBrowserRedirect: isNativePlatform(),
+          queryParams: {
+            prompt: "select_account",
+          },
+        },
       });
       if (error) throw error;
-    } catch (error: any) {
-      toast.error(error.message || (language === "hi" ? "Google साइन-इन विफल" : "Google sign-in failed"));
+
+      if (isNativePlatform() && data.url) {
+        await openNativeOAuthUrl(data.url);
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : language === "hi" ? "Google साइन-इन विफल" : "Google sign-in failed";
+      toast.error(message);
       setLoading(false);
     }
   };
