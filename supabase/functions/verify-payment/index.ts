@@ -108,14 +108,14 @@ serve(async (req) => {
 
     const { error: updateError } = await supabaseClient
       .from("subscriptions")
-      .update({
+      .upsert({
+        user_id: user.id,
         plan_type: planType,
         status: "active",
         razorpay_subscription_id: razorpay_payment_id,
         current_period_start: new Date().toISOString(),
         current_period_end: currentPeriodEnd.toISOString(),
-      })
-      .eq("user_id", user.id); // Use authenticated user's ID, not request body
+      }, { onConflict: "user_id" });
 
     if (updateError) {
       console.error("Error updating subscription:", updateError);

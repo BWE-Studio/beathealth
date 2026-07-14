@@ -72,15 +72,27 @@ serve(async (req) => {
       console.log("Razorpay not configured, returning demo mode");
       
       // Update subscription to premium directly for demo - use authenticated user's ID
-      await supabaseClient
+      const { data: subscriptionData, error: subscriptionError } = await supabaseClient
         .from("subscriptions")
-        .update({
+        .upsert({
+          user_id: user.id,
           plan_type: planType,
           status: "active",
           current_period_start: new Date().toISOString(),
           current_period_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        })
-        .eq("user_id", user.id); // Use authenticated user's ID, not request body
+        }, { onConflict: "user_id" })
+        .select()
+        .single();
+
+      if (subscriptionError) {
+        console.error("Subscription upsert failed:", subscriptionError);
+        return new Response(
+          JSON.stringify({ error: "Failed to activate subscription", details: subscriptionError }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      console.log("Subscription upsert result:", subscriptionData);
 
       return new Response(
         JSON.stringify({ 
