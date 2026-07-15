@@ -26,6 +26,7 @@ import { ActivityTracker } from "@/components/ActivityTracker";
 import { useNavigate } from "react-router-dom";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/useAuth";
+import { hideNativeSplash } from "@/lib/nativeSplash";
 
 const Dashboard = () => {
   const { t } = useLanguage();
@@ -36,6 +37,10 @@ const Dashboard = () => {
   const { achievements } = useAchievements();
   const [showCelebration, setShowCelebration] = useState(false);
   const [checkinOpen, setCheckinOpen] = useState(false);
+
+  useEffect(() => {
+    hideNativeSplash();
+  }, []);
 
   const navigateTo = (path: string) => {
     haptic("light");

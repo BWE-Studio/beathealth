@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { Logo } from "@/components/Logo";
 import { ArrowRight, Loader2, Mail, ArrowLeft, Sparkles } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { hideNativeSplash } from "@/lib/nativeSplash";
 import { z } from "zod";
 
 // Validation schemas for authentication inputs
@@ -38,6 +39,10 @@ const Auth = () => {
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [magicLinkSent, setMagicLinkSent] = useState(false);
   const [resetSent, setResetSent] = useState(false);
+
+  useEffect(() => {
+    hideNativeSplash();
+  }, []);
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
