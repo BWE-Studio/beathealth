@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { Capacitor } from "@capacitor/core";
+import { Checkout } from "capacitor-razorpay";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -57,9 +59,15 @@ export const RazorpayCheckout = ({ open, onClose, planType, onSuccess }: Razorpa
   const [error, setError] = useState<string | null>(null);
 
   const plan = planDetails[planType];
+  const isAndroidNative = Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
 
   // Load Razorpay script
   useEffect(() => {
+    if (isAndroidNative) {
+      setScriptLoaded(true);
+      return;
+    }
+
     if (typeof window !== "undefined" && !window.Razorpay) {
       const script = document.createElement("script");
       script.src = "https://checkout.razorpay.com/v1/checkout.js";
@@ -70,7 +78,7 @@ export const RazorpayCheckout = ({ open, onClose, planType, onSuccess }: Razorpa
     } else if (window.Razorpay) {
       setScriptLoaded(true);
     }
-  }, []);
+  }, [isAndroidNative]);
 
   const handlePayment = async () => {
     setLoading(true);
@@ -98,8 +106,31 @@ export const RazorpayCheckout = ({ open, onClose, planType, onSuccess }: Razorpa
         return;
       }
 
+      const verifyPayment = async (response: any) => {
+        try {
+          const { data: verifyData, error: verifyError } = await supabase.functions.invoke("verify-payment", {
+            body: {
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+              userId: user.id,
+              planType
+            }
+          });
+
+          if (verifyError) throw verifyError;
+
+          toast.success("🎉 Payment successful! Welcome to " + plan.name);
+          onSuccess();
+          onClose();
+        } catch (err) {
+          console.error("Payment verification error:", err);
+          toast.error("Payment verification failed. Please contact support.");
+        }
+      };
+
       // Live Razorpay payment
-      if (!window.Razorpay) {
+      if (!isAndroidNative && !window.Razorpay) {
         throw new Error("Payment gateway not loaded");
       }
 
@@ -110,32 +141,10 @@ export const RazorpayCheckout = ({ open, onClose, planType, onSuccess }: Razorpa
         name: "Beat",
         description: `${plan.name} Subscription`,
         order_id: data.orderId,
-        handler: async (response: any) => {
-          // Verify payment
-          try {
-            const { data: verifyData, error: verifyError } = await supabase.functions.invoke("verify-payment", {
-              body: {
-                razorpay_order_id: response.razorpay_order_id,
-                razorpay_payment_id: response.razorpay_payment_id,
-                razorpay_signature: response.razorpay_signature,
-                userId: user.id,
-                planType
-              }
-            });
-
-            if (verifyError) throw verifyError;
-
-            toast.success("🎉 Payment successful! Welcome to " + plan.name);
-            onSuccess();
-            onClose();
-          } catch (err) {
-            console.error("Payment verification error:", err);
-            toast.error("Payment verification failed. Please contact support.");
-          }
-        },
+        handler: verifyPayment,
         prefill: {
           email: user.email,
-          contact: ""
+          contact: "+917416772781"
         },
         notes: {
           user_id: user.id,
@@ -150,6 +159,17 @@ export const RazorpayCheckout = ({ open, onClose, planType, onSuccess }: Razorpa
           }
         }
       };
+
+      if (isAndroidNative) {
+        Checkout.open(options as any)
+          .then((result: any) => verifyPayment(result?.response ?? result))
+          .catch((err: any) => {
+            console.error("Payment error:", err);
+            setError(err instanceof Error ? err.message : "Payment failed");
+            toast.error("Failed to initiate payment");
+          });
+        return;
+      }
 
       const razorpay = new window.Razorpay(options);
       razorpay.open();
