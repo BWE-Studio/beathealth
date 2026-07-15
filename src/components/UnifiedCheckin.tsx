@@ -85,6 +85,7 @@ const traceJson = (value: unknown) => JSON.stringify(
 );
 
 const logTrace = (label: string, value: unknown) => {
+  if (!import.meta.env.DEV) return;
   console.log(`${label}\n${traceJson(value)}`);
 };
 
@@ -337,20 +338,23 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
         invalidations: [
           ["rituals", userId],
           ["ritual-status"],
-          ["streaks"],
-          ["social-wellness"],
+          ["streaks", userId],
+          ["social-wellness", "weekly"],
         ],
         cacheWrites: heartScore?.user_id
           ? [
               ["heartScore", "today", heartScore.user_id],
               ["heartScore", "history", heartScore.user_id],
             ]
-          : [["heartScore"]],
+          : [
+              ["heartScore", "today", userId],
+              ["heartScore", "history", userId],
+            ],
       });
       queryClient.invalidateQueries({ queryKey: ["rituals", userId] });
       queryClient.invalidateQueries({ queryKey: ["ritual-status"] });
-      queryClient.invalidateQueries({ queryKey: ["streaks"] });
-      queryClient.invalidateQueries({ queryKey: ["social-wellness"] });
+      queryClient.invalidateQueries({ queryKey: ["streaks", userId] });
+      queryClient.invalidateQueries({ queryKey: ["social-wellness", "weekly"] });
       if (heartScore?.user_id) {
         queryClient.setQueryData(["heartScore", "today", heartScore.user_id], heartScore);
         queryClient.setQueryData<HeartScoreRecord[] | undefined>(
@@ -358,7 +362,8 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
           (history) => upsertHistoryScore(history, heartScore)
         );
       } else {
-        queryClient.invalidateQueries({ queryKey: ["heartScore"] });
+        queryClient.invalidateQueries({ queryKey: ["heartScore", "today", userId] });
+        queryClient.invalidateQueries({ queryKey: ["heartScore", "history", userId] });
       }
 
       // Celebration
@@ -506,11 +511,14 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
               )}
 
               {vitalsMode !== "sugar" && (
-                <div className="rounded-2xl border border-border/50 bg-card/50 p-3 space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-2">
-                      <Label className="block px-1 text-xs leading-none text-muted-foreground">{language === "hi" ? "सिस्टोलिक" : "Systolic"}</Label>
+                <div className="rounded-2xl border border-border/50 bg-card/50 p-4 space-y-4">
+                  <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-4">
+                    <div className="flex min-w-0 flex-col gap-2">
+                      <Label htmlFor="checkin-systolic" className="block px-1 text-xs leading-5 text-muted-foreground">
+                        {language === "hi" ? "सिस्टोलिक" : "Systolic"}
+                      </Label>
                       <Input
+                        id="checkin-systolic"
                         type="number"
                         placeholder="120"
                         value={systolic}
@@ -518,9 +526,12 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                         className="h-11 text-center text-lg placeholder:text-muted-foreground/50"
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label className="block px-1 text-xs leading-none text-muted-foreground">{language === "hi" ? "डायस्टोलिक" : "Diastolic"}</Label>
+                    <div className="flex min-w-0 flex-col gap-2">
+                      <Label htmlFor="checkin-diastolic" className="block px-1 text-xs leading-5 text-muted-foreground">
+                        {language === "hi" ? "डायस्टोलिक" : "Diastolic"}
+                      </Label>
                       <Input
+                        id="checkin-diastolic"
                         type="number"
                         placeholder="80"
                         value={diastolic}
@@ -530,9 +541,12 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label className="block px-1 text-xs leading-none text-muted-foreground">{language === "hi" ? "हृदय गति (वैकल्पिक)" : "Heart Rate (optional)"}</Label>
+                  <div className="flex min-w-0 flex-col gap-2">
+                    <Label htmlFor="checkin-heart-rate" className="block px-1 text-xs leading-5 text-muted-foreground">
+                      {language === "hi" ? "हृदय गति (वैकल्पिक)" : "Heart Rate (optional)"}
+                    </Label>
                     <Input
+                      id="checkin-heart-rate"
                       type="number"
                       placeholder="72"
                       value={heartRate}
