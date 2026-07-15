@@ -51,6 +51,10 @@ interface CognitiveAssessment {
   risk_level: string;
 }
 
+function logJson(label: string, value: unknown) {
+  console.log(`${label}\n${JSON.stringify(value, null, 2)}`);
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -102,10 +106,19 @@ serve(async (req) => {
     const validated = scoreSchema.parse(body);
     const { date } = validated;
     const targetDate = date || new Date().toISOString().split("T")[0];
+    const targetStart = new Date(`${targetDate}T00:00:00.000Z`);
+    const targetEnd = new Date(targetStart);
+    targetEnd.setUTCDate(targetEnd.getUTCDate() + 1);
+    const fetchWindow = {
+      from: targetStart.toISOString(),
+      toExclusive: targetEnd.toISOString(),
+    };
 
-    console.log("[HeartScore] Request start", {
+    logJson("[HeartScore] Request start", {
       userId: user.id,
       targetDate,
+      requestBody: body,
+      fetchWindow,
       hasGeminiApiKey: !!geminiApiKey,
       adminKeyRole: getJwtRole(supabaseServiceKey),
     });
@@ -135,8 +148,8 @@ serve(async (req) => {
         .from("bp_logs")
         .select("*")
         .eq("user_id", user.id)
-        .gte("measured_at", `${targetDate}T00:00:00`)
-        .lt("measured_at", `${targetDate}T23:59:59`)
+        .gte("measured_at", fetchWindow.from)
+        .lt("measured_at", fetchWindow.toExclusive)
         .order("measured_at", { ascending: false }),
       
       // Sugar logs
@@ -144,8 +157,8 @@ serve(async (req) => {
         .from("sugar_logs")
         .select("*")
         .eq("user_id", user.id)
-        .gte("measured_at", `${targetDate}T00:00:00`)
-        .lt("measured_at", `${targetDate}T23:59:59`)
+        .gte("measured_at", fetchWindow.from)
+        .lt("measured_at", fetchWindow.toExclusive)
         .order("measured_at", { ascending: false }),
       
       // Behavior logs
@@ -168,7 +181,7 @@ serve(async (req) => {
         .from("environmental_logs")
         .select("*")
         .eq("user_id", user.id)
-        .gte("measured_at", `${targetDate}T00:00:00`)
+        .gte("measured_at", fetchWindow.from)
         .order("measured_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
@@ -190,6 +203,67 @@ serve(async (req) => {
     const envLog = envResult.data as EnvironmentalLog | null;
     const cognitiveAssessments = cognitiveResult.data || [];
 
+    logJson("[HeartScore] Health data fetch complete", {
+      userId: user.id,
+      targetDate,
+      fetchWindow,
+      errors: {
+        bp: bpResult.error,
+        sugar: sugarResult.error,
+        behavior: behaviorResult.error,
+        social: socialResult.error,
+        environmental: envResult.error,
+        cognitive: cognitiveResult.error,
+      },
+      counts: {
+        bp: bpLogs.length,
+        sugar: sugarLogs.length,
+        behavior: behaviorLogs.length,
+        social: socialLog ? 1 : 0,
+        environmental: envLog ? 1 : 0,
+        cognitive: cognitiveAssessments.length,
+      },
+      bpLogs: bpLogs.map((log: any) => ({
+        id: log.id,
+        systolic: log.systolic,
+        diastolic: log.diastolic,
+        heart_rate: log.heart_rate,
+        measured_at: log.measured_at,
+        ritual_type: log.ritual_type,
+      })),
+      sugarLogs: sugarLogs.map((log: any) => ({
+        id: log.id,
+        glucose_mg_dl: log.glucose_mg_dl,
+        measurement_type: log.measurement_type,
+        measured_at: log.measured_at,
+        ritual_type: log.ritual_type,
+      })),
+      behaviorLogs: behaviorLogs.map((log: any) => ({
+        id: log.id,
+        log_date: log.log_date,
+        ritual_type: log.ritual_type,
+        meds_taken: log.meds_taken,
+        sleep_quality: log.sleep_quality,
+        social_interaction_count: log.social_interaction_count,
+        loneliness_score: log.loneliness_score,
+      })),
+      socialLog,
+    });
+
+    const fetchErrors = [
+      ["bp_logs", bpResult.error],
+      ["sugar_logs", sugarResult.error],
+      ["behavior_logs", behaviorResult.error],
+      ["social_wellness_logs", socialResult.error],
+      ["environmental_logs", envResult.error],
+      ["cognitive_assessments", cognitiveResult.error],
+    ].filter(([, error]) => error);
+
+    if (fetchErrors.length > 0) {
+      logJson("[HeartScore] Health data fetch failed", { fetchErrors });
+      throw new Error(`Failed to fetch health data: ${fetchErrors.map(([table]) => table).join(", ")}`);
+    }
+
     // Calculate BP Score (0-100) - 25% weight
     let bpScore = 50;
     if (bpLogs.length > 0) {
@@ -200,13 +274,26 @@ serve(async (req) => {
         bpScore = 100;
       } else if (avgSystolic < 130 && avgDiastolic < 80) {
         bpScore = 90;
-      } else if (avgSystolic < 140 || avgDiastolic < 90) {
+      } else if ((avgSystolic >= 130 && avgSystolic < 140) || (avgDiastolic >= 80 && avgDiastolic < 90)) {
         bpScore = 70;
-      } else if (avgSystolic < 160 || avgDiastolic < 100) {
+      } else if ((avgSystolic >= 140 && avgSystolic < 160) || (avgDiastolic >= 90 && avgDiastolic < 100)) {
         bpScore = 50;
       } else {
         bpScore = 30;
       }
+
+      logJson("[HeartScore] BP calculation", {
+        count: bpLogs.length,
+        avgSystolic,
+        avgDiastolic,
+        bpScore,
+      });
+    } else {
+      logJson("[HeartScore] BP calculation", {
+        count: 0,
+        bpScore,
+        reason: "No BP logs found in fetch window",
+      });
     }
 
     // Calculate Sugar Score (0-100) - 25% weight
@@ -215,14 +302,16 @@ serve(async (req) => {
       const fastingLogs = sugarLogs.filter((log: SugarLog) => log.measurement_type === "fasting");
       const randomLogs = sugarLogs.filter((log: SugarLog) => log.measurement_type === "random");
 
-      let fastingScore = 50;
-      let randomScore = 50;
+      const availableScores: number[] = [];
+      let fastingScore: number | null = null;
+      let randomScore: number | null = null;
 
       if (fastingLogs.length > 0) {
         const avgFasting = fastingLogs.reduce((sum: number, log: SugarLog) => sum + log.glucose_mg_dl, 0) / fastingLogs.length;
         if (avgFasting < 100) fastingScore = 100;
         else if (avgFasting < 126) fastingScore = 70;
         else fastingScore = 40;
+        availableScores.push(fastingScore);
       }
 
       if (randomLogs.length > 0) {
@@ -230,16 +319,39 @@ serve(async (req) => {
         if (avgRandom < 140) randomScore = 100;
         else if (avgRandom < 200) randomScore = 70;
         else randomScore = 40;
+        availableScores.push(randomScore);
       }
 
-      sugarScore = Math.round((fastingScore + randomScore) / 2);
+      if (availableScores.length > 0) {
+        sugarScore = Math.round(availableScores.reduce((sum, score) => sum + score, 0) / availableScores.length);
+      }
+
+      logJson("[HeartScore] Sugar calculation", {
+        count: sugarLogs.length,
+        fastingCount: fastingLogs.length,
+        randomCount: randomLogs.length,
+        fastingScore,
+        randomScore,
+        sugarScore,
+        sugarLogs: sugarLogs.map((log: any) => ({
+          glucose_mg_dl: log.glucose_mg_dl,
+          measurement_type: log.measurement_type,
+          measured_at: log.measured_at,
+        })),
+      });
+    } else {
+      logJson("[HeartScore] Sugar calculation", {
+        count: 0,
+        sugarScore,
+        reason: "No sugar logs found in fetch window",
+      });
     }
 
     // Calculate Consistency/Behavior Score (0-100) - 20% weight
     let consistencyScore = 0;
     if (behaviorLogs.length > 0) {
-      const morningRitual = behaviorLogs.find((log: BehaviorLog) => log.ritual_type === "morning");
-      const eveningRitual = behaviorLogs.find((log: BehaviorLog) => log.ritual_type === "evening");
+      const morningRitual = behaviorLogs.find((log: BehaviorLog) => log.ritual_type?.trim().toLowerCase() === "morning");
+      const eveningRitual = behaviorLogs.find((log: BehaviorLog) => log.ritual_type?.trim().toLowerCase() === "evening");
 
       if (morningRitual) consistencyScore += 40;
       if (eveningRitual) consistencyScore += 40;
@@ -258,6 +370,13 @@ serve(async (req) => {
         consistencyScore = Math.min(100, consistencyScore + 10);
       }
     }
+
+    logJson("[HeartScore] Consistency calculation", {
+      count: behaviorLogs.length,
+      ritualTypes: behaviorLogs.map((log: BehaviorLog) => log.ritual_type),
+      logDates: behaviorLogs.map((log: BehaviorLog) => log.log_date),
+      consistencyScore,
+    });
 
     // Calculate Social Wellness Score (0-100) - 15% weight
     let socialScore = 50;
@@ -330,7 +449,16 @@ serve(async (req) => {
       (cognitiveScore * 0.05)
     );
 
-    console.log(`Scores: BP=${bpScore}, Sugar=${sugarScore}, Consistency=${consistencyScore}, Social=${socialScore}, Env=${envScore}, Cognitive=${cognitiveScore}, Heart=${heartScore}`);
+    logJson("[HeartScore] Final score calculation", {
+      bpScore,
+      sugarScore,
+      consistencyScore,
+      socialScore,
+      envScore,
+      cognitiveScore,
+      heartScore,
+      formula: "(bp*0.25)+(sugar*0.25)+(consistency*0.20)+(social*0.15)+(env*0.10)+(cognitive*0.05)",
+    });
 
     // Generate comprehensive AI explanation
     const aiPrompt = `You are a health coach explaining a HeartScore to an Indian adult. The HeartScore is ${heartScore}/100.
@@ -369,7 +497,7 @@ Write a warm, encouraging 2-3 sentence summary in simple English. Highlight the 
         },
       };
 
-      console.log("[HeartScore] Calling Gemini API", {
+      logJson("[HeartScore] Calling Gemini API", {
         endpoint: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
         model: "gemini-2.5-flash",
         heartScore,
@@ -383,14 +511,14 @@ Write a warm, encouraging 2-3 sentence summary in simple English. Highlight the 
         body: JSON.stringify(requestBody),
       });
 
-      console.log("[HeartScore] Gemini status", {
+      logJson("[HeartScore] Gemini status", {
         ok: aiResponse.ok,
         status: aiResponse.status,
         statusText: aiResponse.statusText,
       });
 
       const responseText = await aiResponse.text();
-      console.log("[HeartScore] Gemini response preview", {
+      logJson("[HeartScore] Gemini response preview", {
         bodyPreview: trimForLog(responseText),
         bodyLength: responseText.length,
       });
@@ -416,7 +544,7 @@ Write a warm, encouraging 2-3 sentence summary in simple English. Highlight the 
         }
 
         aiExplanation = explanation;
-        console.log("[HeartScore] Parsed explanation", {
+        logJson("[HeartScore] Parsed explanation", {
           explanationPreview: trimForLog(aiExplanation),
           explanationLength: aiExplanation.length,
         });
@@ -444,25 +572,37 @@ Write a warm, encouraging 2-3 sentence summary in simple English. Highlight the 
     }
 
     // Store the HeartScore
+    const heartScorePayload = {
+      user_id: user.id,
+      score_date: targetDate,
+      heart_score: heartScore,
+      bp_score: bpScore,
+      sugar_score: sugarScore,
+      consistency_score: consistencyScore,
+      ai_explanation: aiExplanation,
+    };
+
+    logJson("[HeartScore] Upsert request", {
+      payload: heartScorePayload,
+      onConflict: "user_id,score_date",
+    });
+
     const { data: heartScoreData, error: insertError } = await supabaseAdmin
       .from("heart_scores")
-      .upsert({
-        user_id: user.id,
-        score_date: targetDate,
-        heart_score: heartScore,
-        bp_score: bpScore,
-        sugar_score: sugarScore,
-        consistency_score: consistencyScore,
-        ai_explanation: aiExplanation,
-      }, {
+      .upsert(heartScorePayload, {
         onConflict: "user_id,score_date"
       })
       .select()
       .single();
 
+    logJson("[HeartScore] Upsert response", {
+      data: heartScoreData,
+      error: insertError,
+    });
+
     if (insertError) throw insertError;
 
-    console.log("[HeartScore] HeartScore saved successfully:", heartScoreData);
+    logJson("[HeartScore] HeartScore saved successfully", heartScoreData);
 
     // Generate health alerts based on readings
     const alertsToCreate: any[] = [];

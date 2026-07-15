@@ -37,6 +37,67 @@ const LONELINESS_OPTIONS = [
   { value: 4, label: "Very", emoji: "😢" },
 ];
 
+type HeartScoreRecord = {
+  user_id: string;
+  score_date: string;
+  [key: string]: unknown;
+};
+
+const upsertHistoryScore = (history: HeartScoreRecord[] | undefined, score: HeartScoreRecord) => {
+  const existing = history ?? [];
+  const withoutCurrentDate = existing.filter((item) => item.score_date !== score.score_date);
+  return [score, ...withoutCurrentDate].sort((a, b) => b.score_date.localeCompare(a.score_date));
+};
+
+const formatSupabaseError = (error: unknown) => {
+  if (!error || typeof error !== "object") return String(error);
+
+  const maybeError = error as {
+    code?: string;
+    details?: string;
+    hint?: string;
+    message?: string;
+    status?: number;
+  };
+
+  return [
+    maybeError.code && `code=${maybeError.code}`,
+    maybeError.status && `status=${maybeError.status}`,
+    maybeError.message && `message=${maybeError.message}`,
+    maybeError.details && `details=${maybeError.details}`,
+    maybeError.hint && `hint=${maybeError.hint}`,
+  ].filter(Boolean).join(" | ");
+};
+
+const traceJson = (value: unknown) => JSON.stringify(
+  value,
+  (_key, item) => {
+    if (item instanceof Error) {
+      return {
+        name: item.name,
+        message: item.message,
+        stack: item.stack,
+      };
+    }
+    return item;
+  },
+  2
+);
+
+const logTrace = (label: string, value: unknown) => {
+  console.log(`${label}\n${traceJson(value)}`);
+};
+
+const throwCheckinError = (stepName: string, error: unknown) => {
+  const details = formatSupabaseError(error);
+  console.error(`[UnifiedCheckin] ${stepName} failed\n${traceJson({
+    stepName,
+    details,
+    error,
+  })}`);
+  throw new Error(details ? `${stepName} failed: ${details}` : `${stepName} failed`);
+};
+
 export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut }: UnifiedCheckinProps) => {
   const queryClient = useQueryClient();
   const { language } = useLanguage();
@@ -116,28 +177,60 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
 
       const now = new Date();
       const today = now.toISOString().split("T")[0];
+      const traceId = `checkin-${Date.now()}`;
+
+      logTrace("[CheckinTrace] Morning/Evening check-in start", {
+        traceId,
+        userId: user.id,
+        ritualType,
+        isMorning,
+        today,
+        measuredAt: now.toISOString(),
+        inputs: {
+          systolic,
+          diastolic,
+          heartRate,
+          fastingSugar,
+          stepsCount,
+          sleepQuality,
+          medsTaken,
+          socialInteractions,
+          moodScore,
+          leftHome,
+          lonelinessScore,
+          talkedToFamily,
+        },
+      });
 
       // Log BP if provided
       if (systolic && diastolic) {
-        await supabase.from("bp_logs").insert({
+        const bpPayload = {
           user_id: user.id,
           systolic: parseInt(systolic),
           diastolic: parseInt(diastolic),
           heart_rate: heartRate ? parseInt(heartRate) : null,
           measured_at: now.toISOString(),
           ritual_type: ritualType,
-        });
+        };
+        logTrace("[CheckinTrace] BP insert request", { traceId, bpPayload });
+        const { data: bpData, error: bpError } = await supabase.from("bp_logs").insert(bpPayload).select("*").single();
+        logTrace("[CheckinTrace] BP insert response", { traceId, insertedRow: bpData, error: bpError });
+        if (bpError) throwCheckinError("BP log insert", bpError);
       }
 
       // Log sugar if provided (morning only)
       if (isMorning && fastingSugar) {
-        await supabase.from("sugar_logs").insert({
+        const sugarPayload = {
           user_id: user.id,
           glucose_mg_dl: parseInt(fastingSugar),
           measurement_type: "fasting",
           measured_at: now.toISOString(),
           ritual_type: ritualType,
-        });
+        };
+        logTrace("[CheckinTrace] Sugar insert request", { traceId, sugarPayload });
+        const { data: sugarData, error: sugarError } = await supabase.from("sugar_logs").insert(sugarPayload).select("*").single();
+        logTrace("[CheckinTrace] Sugar insert response", { traceId, insertedRow: sugarData, error: sugarError });
+        if (sugarError) throwCheckinError("Sugar log insert", sugarError);
       }
 
       // Log behavior
@@ -148,7 +241,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
         }
       }
 
-      await supabase.from("behavior_logs").insert([{
+      const behaviorPayload = {
         user_id: user.id,
         log_date: today,
         ritual_type: ritualType,
@@ -158,15 +251,26 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
         notes: notes || null,
         loneliness_score: lonelinessScore,
         social_interaction_count: socialInteractions,
-      }]);
+      };
+      logTrace("[CheckinTrace] Behavior insert request", { traceId, behaviorPayload });
+      const { data: behaviorData, error: behaviorError } = await supabase.from("behavior_logs").insert([behaviorPayload]).select("*").single();
+      logTrace("[CheckinTrace] Behavior insert response", { traceId, insertedRow: behaviorData, error: behaviorError });
+      if (behaviorError) throwCheckinError("Behavior log insert", behaviorError);
 
       // Log social wellness for both morning and evening
-      const { data: existing } = await supabase
+      const { data: existing, error: existingSocialError } = await supabase
         .from("social_wellness_logs")
         .select("id")
         .eq("user_id", user.id)
         .eq("log_date", today)
         .maybeSingle();
+      logTrace("[CheckinTrace] Social wellness lookup response", {
+        traceId,
+        query: { table: "social_wellness_logs", userId: user.id, logDate: today },
+        data: existing,
+        error: existingSocialError,
+      });
+      if (existingSocialError) throwCheckinError("Social wellness lookup", existingSocialError);
 
       const socialData = {
         social_interactions: socialInteractions,
@@ -177,34 +281,85 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
       };
 
       if (existing) {
-        await supabase.from("social_wellness_logs").update(socialData).eq("id", existing.id);
+        logTrace("[CheckinTrace] Social wellness update request", { traceId, id: existing.id, socialData });
+        const { data: socialUpdateData, error: socialUpdateError } = await supabase.from("social_wellness_logs").update(socialData).eq("id", existing.id).select("*").single();
+        logTrace("[CheckinTrace] Social wellness update response", { traceId, updatedRow: socialUpdateData, error: socialUpdateError });
+        if (socialUpdateError) throwCheckinError("Social wellness update", socialUpdateError);
       } else {
-        await supabase.from("social_wellness_logs").insert({
+        const socialInsertPayload = {
           user_id: user.id,
           log_date: today,
           ...socialData,
-        });
+        };
+        logTrace("[CheckinTrace] Social wellness insert request", { traceId, socialInsertPayload });
+        const { data: socialInsertData, error: socialInsertError } = await supabase.from("social_wellness_logs").insert(socialInsertPayload).select("*").single();
+        logTrace("[CheckinTrace] Social wellness insert response", { traceId, insertedRow: socialInsertData, error: socialInsertError });
+        if (socialInsertError) throwCheckinError("Social wellness insert", socialInsertError);
       }
 
       // Update streak
-      await supabase.rpc("update_or_create_streak", {
+      logTrace("[CheckinTrace] Streak RPC request", { traceId, p_user_id: user.id, p_type: "daily_checkin" });
+      const { error: streakError } = await supabase.rpc("update_or_create_streak", {
         p_user_id: user.id,
-        p_type: ritualType,
+        p_type: "daily_checkin",
       });
+      logTrace("[CheckinTrace] Streak RPC response", { traceId, error: streakError });
+      if (streakError) throwCheckinError("Daily check-in streak update", streakError);
 
       // Calculate heart score
-      await supabase.functions.invoke("calculate-heart-score", {
-        body: { userId: user.id },
+      logTrace("[CheckinTrace] calculate-heart-score invoke request", {
+        traceId,
+        body: { date: today },
       });
+      const { data: scoreData, error: scoreError } = await supabase.functions.invoke("calculate-heart-score", {
+        body: { date: today },
+      });
+      logTrace("[CheckinTrace] calculate-heart-score invoke response", {
+        traceId,
+        response: scoreData,
+        heartScore: scoreData?.heartScore?.heart_score,
+        bpScore: scoreData?.heartScore?.bp_score,
+        sugarScore: scoreData?.heartScore?.sugar_score,
+        returnedRow: scoreData?.heartScore,
+        error: scoreError,
+      });
+      if (scoreError) throwCheckinError("HeartScore calculation", scoreError);
+      if (scoreData?.success === false) {
+        throwCheckinError("HeartScore calculation", scoreData);
+      }
 
-      return true;
+      return { userId: user.id, heartScore: scoreData?.heartScore as HeartScoreRecord | undefined };
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rituals"] });
+    onSuccess: ({ userId, heartScore }) => {
+      logTrace("[CheckinTrace] Check-in mutation success", {
+        userId,
+        heartScore,
+        invalidations: [
+          ["rituals", userId],
+          ["ritual-status"],
+          ["streaks"],
+          ["social-wellness"],
+        ],
+        cacheWrites: heartScore?.user_id
+          ? [
+              ["heartScore", "today", heartScore.user_id],
+              ["heartScore", "history", heartScore.user_id],
+            ]
+          : [["heartScore"]],
+      });
+      queryClient.invalidateQueries({ queryKey: ["rituals", userId] });
       queryClient.invalidateQueries({ queryKey: ["ritual-status"] });
-      queryClient.invalidateQueries({ queryKey: ["heart-score"] });
       queryClient.invalidateQueries({ queryKey: ["streaks"] });
       queryClient.invalidateQueries({ queryKey: ["social-wellness"] });
+      if (heartScore?.user_id) {
+        queryClient.setQueryData(["heartScore", "today", heartScore.user_id], heartScore);
+        queryClient.setQueryData<HeartScoreRecord[] | undefined>(
+          ["heartScore", "history", heartScore.user_id],
+          (history) => upsertHistoryScore(history, heartScore)
+        );
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["heartScore"] });
+      }
 
       // Celebration
       confetti({
@@ -221,8 +376,10 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
       onClose();
     },
     onError: (error) => {
-      console.error("Check-in error:", error);
-      toast.error("Failed to save check-in");
+      console.error(`[UnifiedCheckin] Check-in failed\n${traceJson(error)}`);
+      toast.error("Check-in failed", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
     },
   });
 
@@ -278,9 +435,9 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
         <div className="space-y-6 py-4 overflow-y-auto max-h-[calc(85vh-150px)]">
           {/* Step 1: Vitals */}
           {step === 1 && (
-            <div className="space-y-6 animate-fade-in">
+            <div className="space-y-4 animate-fade-in">
               <div className="text-center mb-4">
-                <Heart className="h-12 w-12 text-red-500 mx-auto mb-2" />
+                <Heart className="h-10 w-10 text-red-500 mx-auto mb-2" />
                 <h3 className="text-lg font-semibold">
                   {vitalsMode === "sugar"
                     ? (language === "hi" ? "ब्लड शुगर" : "Blood Sugar")
@@ -301,10 +458,10 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                     setOcrDeviceType("bp_monitor");
                     setShowOCR(true);
                   }}
-                  className="w-full p-4 rounded-xl bg-gradient-to-r from-primary/10 to-accent/10 border border-primary/20 flex items-center gap-4 active:scale-[0.98] transition-transform"
+                  className="w-full p-3 rounded-xl bg-gradient-to-r from-primary/10 to-accent/10 border border-primary/20 flex items-center gap-3 active:scale-[0.98] transition-transform"
                 >
-                  <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center">
-                    <Camera className="w-6 h-6 text-primary" />
+                  <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
+                    <Camera className="w-5 h-5 text-primary" />
                   </div>
                   <div className="flex-1 text-left">
                     <p className="font-semibold flex items-center gap-2">
@@ -349,49 +506,49 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
               )}
 
               {vitalsMode !== "sugar" && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>{language === "hi" ? "सिस्टोलिक (ऊपर)" : "Systolic (top)"}</Label>
-                    <Input
-                      type="number"
-                      placeholder="120"
-                      value={systolic}
-                      onChange={(e) => setSystolic(e.target.value)}
-                      className="text-center text-xl"
-                    />
+                <div className="rounded-2xl border border-border/50 bg-card/50 p-3 space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label className="block px-1 text-xs leading-none text-muted-foreground">{language === "hi" ? "सिस्टोलिक" : "Systolic"}</Label>
+                      <Input
+                        type="number"
+                        placeholder="120"
+                        value={systolic}
+                        onChange={(e) => setSystolic(e.target.value)}
+                        className="h-11 text-center text-lg placeholder:text-muted-foreground/50"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="block px-1 text-xs leading-none text-muted-foreground">{language === "hi" ? "डायस्टोलिक" : "Diastolic"}</Label>
+                      <Input
+                        type="number"
+                        placeholder="80"
+                        value={diastolic}
+                        onChange={(e) => setDiastolic(e.target.value)}
+                        className="h-11 text-center text-lg placeholder:text-muted-foreground/50"
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label>{language === "hi" ? "डायस्टोलिक (नीचे)" : "Diastolic (bottom)"}</Label>
-                    <Input
-                      type="number"
-                      placeholder="80"
-                      value={diastolic}
-                      onChange={(e) => setDiastolic(e.target.value)}
-                      className="text-center text-xl"
-                    />
-                  </div>
-                </div>
-              )}
 
-              {vitalsMode !== "sugar" && (
-                <div className="space-y-2">
-                  <Label>{language === "hi" ? "हृदय गति (वैकल्पिक)" : "Heart Rate (optional)"}</Label>
-                  <Input
-                    type="number"
-                    placeholder="72"
-                    value={heartRate}
-                    onChange={(e) => setHeartRate(e.target.value)}
-                    className="text-center"
-                  />
+                  <div className="space-y-2">
+                    <Label className="block px-1 text-xs leading-none text-muted-foreground">{language === "hi" ? "हृदय गति (वैकल्पिक)" : "Heart Rate (optional)"}</Label>
+                    <Input
+                      type="number"
+                      placeholder="72"
+                      value={heartRate}
+                      onChange={(e) => setHeartRate(e.target.value)}
+                      className="h-10 text-center placeholder:text-muted-foreground/50"
+                    />
+                  </div>
                 </div>
               )}
 
               {isMorning && vitalsMode !== "bp" && (
-                <div className={`space-y-4 ${vitalsMode === "all" ? "pt-4 border-t" : ""}`}>
+                <div className={`rounded-2xl border border-border/50 bg-card/50 p-3 space-y-3 ${vitalsMode === "all" ? "mt-1" : ""}`}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Droplet className="h-5 w-5 text-blue-500" />
-                      <Label>{language === "hi" ? "फास्टिंग शुगर (mg/dL)" : "Fasting Blood Sugar (mg/dL)"}</Label>
+                      <Label className="block text-sm leading-none">{language === "hi" ? "फास्टिंग शुगर" : "Fasting Blood Sugar"}</Label>
                     </div>
                     <button
                       onClick={() => {
@@ -410,7 +567,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                     placeholder="100"
                     value={fastingSugar}
                     onChange={(e) => setFastingSugar(e.target.value)}
-                    className="text-center text-xl"
+                    className="h-11 text-center text-lg placeholder:text-muted-foreground/50"
                   />
                 </div>
               )}

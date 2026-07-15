@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, createContext, useContext, ReactNode } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext, ReactNode } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -17,6 +17,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const validationRunRef = useRef(0);
+  const initialAuthResolvedRef = useRef(false);
 
   useEffect(() => {
     const clearAuthState = () => {
@@ -24,6 +25,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setSession(null);
       setUser(null);
       setLoading(false);
+      initialAuthResolvedRef.current = true;
     };
 
     const validateSession = async (nextSession: Session | null) => {
@@ -34,10 +36,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setSession(null);
         setUser(null);
         setLoading(false);
+        initialAuthResolvedRef.current = true;
         return;
       }
 
-      setLoading(true);
+      if (!initialAuthResolvedRef.current) {
+        setLoading(true);
+      }
 
       const { data, error } = await supabase.auth.getUser();
       if (validationRunRef.current !== runId) return;
@@ -49,12 +54,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setSession(null);
         setUser(null);
         setLoading(false);
+        initialAuthResolvedRef.current = true;
         return;
       }
 
       setSession(nextSession);
       setUser(data.user);
       setLoading(false);
+      initialAuthResolvedRef.current = true;
     };
 
     // Set up auth state listener FIRST
@@ -79,22 +86,27 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return () => subscription.unsubscribe();
   }, []);
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     await supabase.auth.signOut();
     setUser(null);
     setSession(null);
-  };
+    setLoading(false);
+    initialAuthResolvedRef.current = true;
+  }, []);
+
+  const value = useMemo(
+    () => ({
+      user,
+      session,
+      loading,
+      isAuthenticated: !!session,
+      signOut,
+    }),
+    [user, session, loading, signOut]
+  );
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        session,
-        loading,
-        isAuthenticated: !!session,
-        signOut,
-      }}
-    >
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

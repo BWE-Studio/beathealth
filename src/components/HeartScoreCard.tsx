@@ -6,15 +6,29 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { haptic } from "@/lib/haptics";
 import { ThemedIcon, ThemedEmoji } from "./ThemedIcon";
 
+const traceJson = (value: unknown) => JSON.stringify(value, null, 2);
+
 const HeartScoreCard = () => {
   const { todayScore, isLoading, calculateScore, isCalculating } = useHeartScore();
   const { t } = useLanguage();
+
+  console.count("[HeartScoreTrace] HeartScoreCard render");
 
   const score = todayScore?.heart_score || 0;
   const bpScore = todayScore?.bp_score || 0;
   const sugarScore = todayScore?.sugar_score || 0;
   const consistencyScore = todayScore?.consistency_score || 0;
   const aiExplanation = todayScore?.ai_explanation;
+
+  console.log(`[DashboardTrace] Displayed HeartScore values\n${traceJson({
+    displayedHeartScore: score,
+    displayedBpScore: bpScore,
+    displayedSugarScore: sugarScore,
+    displayedConsistencyScore: consistencyScore,
+    isLoading,
+    isCalculating,
+    todayScore,
+  })}`);
 
   const getScoreColor = (score: number) => {
     if (score >= 80) return "text-secondary";

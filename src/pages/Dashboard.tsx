@@ -28,6 +28,8 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/useAuth";
 import { hideNativeSplash } from "@/lib/nativeSplash";
 
+const traceJson = (value: unknown) => JSON.stringify(value, null, 2);
+
 const Dashboard = () => {
   const { t } = useLanguage();
   const queryClient = useQueryClient();
@@ -37,6 +39,13 @@ const Dashboard = () => {
   const { achievements } = useAchievements();
   const [showCelebration, setShowCelebration] = useState(false);
   const [checkinOpen, setCheckinOpen] = useState(false);
+
+  console.count("[DashboardTrace] Dashboard render");
+  console.log(`[DashboardTrace] Dashboard state\n${traceJson({
+    userId: user?.id,
+    checkinOpen,
+    showCelebration,
+  })}`);
 
   useEffect(() => {
     hideNativeSplash();
@@ -62,6 +71,10 @@ const Dashboard = () => {
     queryFn: async () => {
       if (!user?.id) return null;
       const today = new Date().toISOString().split("T")[0];
+      console.log(`[DashboardTrace] Ritual query start\n${traceJson({
+        queryKey: ["rituals", user.id],
+        today,
+      })}`);
 
       const [behaviorLogs, bpLogs, sugarLogs] = await Promise.all([
         supabase.from("behavior_logs").select("*").eq("user_id", user.id).eq("log_date", today),
@@ -80,7 +93,7 @@ const Dashboard = () => {
       const fastingSugar = sugarLogs.data?.find((log) => log.measurement_type === "fasting");
       const randomSugar = sugarLogs.data?.find((log) => log.measurement_type !== "fasting");
 
-      return {
+      const result = {
         morning: {
           completed: !!morningBehavior && !!morningBP,
           hasBP: !!morningBP,
@@ -96,10 +109,28 @@ const Dashboard = () => {
           hasMeds: eveningBehavior?.meds_taken === true,
         },
       };
+
+      console.log(`[DashboardTrace] Ritual query response\n${traceJson({
+        queryKey: ["rituals", user.id],
+        errors: {
+          behavior: behaviorLogs.error,
+          bp: bpLogs.error,
+          sugar: sugarLogs.error,
+        },
+        counts: {
+          behavior: behaviorLogs.data?.length ?? 0,
+          bp: bpLogs.data?.length ?? 0,
+          sugar: sugarLogs.data?.length ?? 0,
+        },
+        result,
+      })}`);
+
+      return result;
     },
     enabled: !!user?.id,
-    staleTime: 0,
-    gcTime: 0,
+    staleTime: 30 * 1000,
+    gcTime: 5 * 60 * 1000,
+    placeholderData: (previous) => previous,
   });
 
   // Fetch drug interactions count
@@ -133,6 +164,10 @@ const Dashboard = () => {
     const behaviorChannel = supabase
       .channel('dashboard-behavior-logs')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'behavior_logs', filter: `user_id=eq.${user.id}` }, () => {
+        console.log(`[DashboardTrace] Realtime invalidation\n${traceJson({
+          source: "behavior_logs",
+          queryKey: ["rituals", user.id],
+        })}`);
         queryClient.invalidateQueries({ queryKey: ["rituals", user.id] });
       })
       .subscribe();
@@ -140,6 +175,10 @@ const Dashboard = () => {
     const bpChannel = supabase
       .channel('dashboard-bp-logs')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bp_logs', filter: `user_id=eq.${user.id}` }, () => {
+        console.log(`[DashboardTrace] Realtime invalidation\n${traceJson({
+          source: "bp_logs",
+          queryKey: ["rituals", user.id],
+        })}`);
         queryClient.invalidateQueries({ queryKey: ["rituals", user.id] });
       })
       .subscribe();
@@ -147,6 +186,10 @@ const Dashboard = () => {
     const sugarChannel = supabase
       .channel('dashboard-sugar-logs')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sugar_logs', filter: `user_id=eq.${user.id}` }, () => {
+        console.log(`[DashboardTrace] Realtime invalidation\n${traceJson({
+          source: "sugar_logs",
+          queryKey: ["rituals", user.id],
+        })}`);
         queryClient.invalidateQueries({ queryKey: ["rituals", user.id] });
       })
       .subscribe();

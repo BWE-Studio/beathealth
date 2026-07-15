@@ -104,7 +104,7 @@ const AppContent = () => {
     <>
       {!isAndroidNative && <CinematicBackground />}
       <Suspense fallback={<LoadingFallback />}>
-        <PageTransition key={location.pathname}>
+        <PageTransition>
           <Routes location={location}>
             <Route path="/" element={<RootRedirect />} />
             <Route path="/about" element={<About />} />

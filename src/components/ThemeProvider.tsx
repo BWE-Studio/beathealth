@@ -31,8 +31,10 @@ export const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
     localStorage.setItem("theme", theme);
   }, [theme]);
 
+  const value = React.useMemo(() => ({ theme, setTheme }), [theme]);
+
   return (
-    <ThemeContext.Provider value={{ theme, setTheme }}>
+    <ThemeContext.Provider value={value}>
       {children}
     </ThemeContext.Provider>
   );
