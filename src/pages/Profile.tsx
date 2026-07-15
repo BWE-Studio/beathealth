@@ -23,6 +23,7 @@ import {
   Bot
 } from "lucide-react";
 import { useSubscription } from "@/hooks/useSubscription";
+import { RazorpayCheckout } from "@/components/RazorpayCheckout";
 import { AgentPreferences } from "@/components/AgentPreferences";
 import { AgentMemoryView } from "@/components/AgentMemoryView";
 import { PushNotificationToggle } from "@/components/PushNotificationToggle";
@@ -48,7 +49,7 @@ import {
 const Profile = () => {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
-  const { subscription, isPremium, createCheckout, isCreatingCheckout } = useSubscription();
+  const { subscription, isPremium, checkoutPlan, openCheckout, closeCheckout, onCheckoutSuccess } = useSubscription();
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [profile, setProfile] = useState<any>(null);
@@ -605,11 +606,10 @@ const Profile = () => {
               Unlock Beat AI Coach, PDF reports, advanced insights, and priority support.
             </p>
             <Button
-              onClick={() => createCheckout("premium")}
-              disabled={isCreatingCheckout}
+              onClick={() => openCheckout("premium")}
               className="w-full md:w-auto"
             >
-              {isCreatingCheckout ? "Loading..." : "Upgrade to Premium - ₹199/month"}
+              Upgrade to Premium - ₹199/month
             </Button>
           </Card>
         )}
@@ -667,6 +667,15 @@ const Profile = () => {
           {saving ? "Saving..." : "Save Changes"}
         </Button>
       </div>
+
+      {checkoutPlan && (
+        <RazorpayCheckout
+          open={!!checkoutPlan}
+          onClose={closeCheckout}
+          planType={checkoutPlan}
+          onSuccess={onCheckoutSuccess}
+        />
+      )}
     </div>
   );
 };
