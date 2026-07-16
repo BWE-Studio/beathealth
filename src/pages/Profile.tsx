@@ -10,6 +10,9 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Header } from "@/components/Header";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { Capacitor } from "@capacitor/core";
+import { Directory, Encoding, Filesystem } from "@capacitor/filesystem";
+import { Share } from "@capacitor/share";
 import { 
   User, 
   Bell, 
@@ -20,7 +23,8 @@ import {
   Save,
   ArrowLeft,
   Crown,
-  Bot
+  Bot,
+  Loader2
 } from "lucide-react";
 import { useSubscription } from "@/hooks/useSubscription";
 import { RazorpayCheckout } from "@/components/RazorpayCheckout";
@@ -57,6 +61,8 @@ const Profile = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [isExportingData, setIsExportingData] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   
   const [formData, setFormData] = useState({
     full_name: "",
@@ -222,9 +228,17 @@ const Profile = () => {
   };
 
   const handleExportData = async () => {
+    if (isExportingData) return;
+
+    setIsExportingData(true);
+    setExportError(null);
+    toast.loading("Preparing your JSON export...", { id: "profile-data-export" });
+
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user) {
+        throw new Error("You need to be signed in to export your data.");
+      }
 
       const [profileData, bpLogs, sugarLogs, behaviorLogs, medications] = await Promise.all([
         supabase.from("profiles").select("*").eq("id", user.id).single(),
@@ -243,18 +257,61 @@ const Profile = () => {
         medications: medications.data,
       };
 
-      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `beat-health-data-${new Date().toISOString().split("T")[0]}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const fileName = `beat-health-data-${new Date().toISOString().split("T")[0]}.json`;
+      const json = JSON.stringify(exportData, null, 2);
 
-      toast.success("Data exported successfully");
+      if (Capacitor.isNativePlatform()) {
+        await Filesystem.writeFile({
+          path: fileName,
+          data: json,
+          directory: Directory.Cache,
+          encoding: Encoding.UTF8,
+        });
+
+        const { uri } = await Filesystem.getUri({
+          path: fileName,
+          directory: Directory.Cache,
+        });
+
+        toast.loading("Opening share sheet for your JSON export...", { id: "profile-data-export" });
+
+        await Share.share({
+          title: "Beat Health Data Export",
+          text: "Your Beat Health data export is attached as a JSON file.",
+          files: [uri],
+          dialogTitle: "Save or share your data export",
+        });
+
+        toast.success("Your data export is ready. Choose Files, Drive, Gmail, or another app in the share sheet to save it.", {
+          id: "profile-data-export",
+        });
+      } else {
+        const blob = new Blob([json], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = fileName;
+        a.click();
+        URL.revokeObjectURL(url);
+
+        toast.success("Your data has been exported successfully. Browser download started as a JSON file.", {
+          id: "profile-data-export",
+        });
+      }
     } catch (error) {
       console.error("Error exporting data:", error);
-      toast.error("Failed to export data");
+      const errorMessage = error instanceof Error ? error.message : String(error || "");
+      if (/cancel/i.test(errorMessage) || /abort/i.test(errorMessage)) {
+        toast.info("Export prepared, but the share sheet was dismissed. Start export again to save or share the JSON file.", {
+          id: "profile-data-export",
+        });
+        return;
+      }
+      const message = error instanceof Error ? error.message : "Failed to export data. Please try again.";
+      setExportError(message);
+      toast.error(message, { id: "profile-data-export" });
+    } finally {
+      setIsExportingData(false);
     }
   };
 
@@ -622,14 +679,57 @@ const Profile = () => {
           </div>
           
           <div className="space-y-4">
-            <Button
-              variant="outline"
-              onClick={handleExportData}
-              className="w-full justify-start"
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Export My Data
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="w-full justify-start"
+                  disabled={isExportingData}
+                >
+                  {isExportingData ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4 mr-2" />
+                  )}
+                  {isExportingData ? "Exporting Data..." : "Export My Data"}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Export your Beat Health data?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This creates a JSON file containing your profile, BP logs, sugar logs, check-in behavior logs, and medications. On Android, Beat will open the native share sheet so you can save the file to Files, Drive, Gmail, or another app. In a browser, a download named beat-health-data-[date].json will start.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={isExportingData}>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleExportData} disabled={isExportingData}>
+                    {isExportingData ? "Exporting..." : "Start Export"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+            {exportError && (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm">
+                <p className="font-medium text-destructive">Export failed</p>
+                <p className="mt-1 text-muted-foreground">{exportError}</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExportData}
+                  disabled={isExportingData}
+                  className="mt-3"
+                >
+                  {isExportingData ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4 mr-2" />
+                  )}
+                  Retry Export
+                </Button>
+              </div>
+            )}
 
             <AlertDialog>
               <AlertDialogTrigger asChild>
