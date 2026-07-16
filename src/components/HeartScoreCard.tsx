@@ -1,6 +1,7 @@
 import { Card } from "@/components/ui/card";
-import { RefreshCw, Heart, Activity, Droplets, Calendar, Sparkles } from "lucide-react";
+import { RefreshCw, Heart, Activity, Droplets, Calendar, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { useHeartScore } from "@/hooks/useHeartScore";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { haptic } from "@/lib/haptics";
@@ -80,7 +81,62 @@ const HeartScoreCard = () => {
         {/* Header */}
         <div className="flex items-start justify-between mb-4">
           <div>
-            <h2 className="text-lg font-semibold">{t("heartScore.title")}</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold">{t("heartScore.title")}</h2>
+              <Sheet>
+                <SheetTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 rounded-full text-muted-foreground hover:text-foreground"
+                    aria-label="How is HeartScore calculated?"
+                    onClick={() => haptic('light')}
+                  >
+                    <Info className="w-4 h-4" />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="bottom" className="rounded-t-3xl">
+                  <SheetHeader className="text-left">
+                    <SheetTitle>How is HeartScore calculated?</SheetTitle>
+                    <SheetDescription>
+                      Your HeartScore is calculated using your daily health habits and measurements.
+                    </SheetDescription>
+                  </SheetHeader>
+
+                  <div className="mt-5 space-y-5 text-sm text-foreground">
+                    <div>
+                      <p className="font-medium">It considers factors such as:</p>
+                      <ul className="mt-3 space-y-2 text-muted-foreground">
+                        <li>• Blood Pressure</li>
+                        <li>• Blood Sugar</li>
+                        <li>• Daily Check-ins &amp; Consistency</li>
+                        <li>• Sleep &amp; Lifestyle habits</li>
+                        <li>• Social Well-being</li>
+                        <li>• Environmental factors (when available)</li>
+                        <li>• Cognitive assessments (when available)</li>
+                      </ul>
+                    </div>
+
+                    <div className="space-y-2 text-muted-foreground">
+                      <p>The score updates as new health data is recorded.</p>
+                      <p>Missing health data may reduce score accuracy.</p>
+                      <p>A higher score generally indicates healthier daily habits.</p>
+                      <p>The score is meant to help track trends over time and should not replace medical advice.</p>
+                    </div>
+
+                    <div className="rounded-xl border border-primary/10 bg-primary/5 p-4">
+                      <p className="font-medium">Improve your HeartScore by:</p>
+                      <ul className="mt-3 space-y-2 text-muted-foreground">
+                        <li>✓ Completing daily check-ins</li>
+                        <li>✓ Logging BP and Sugar regularly</li>
+                        <li>✓ Following healthy lifestyle habits</li>
+                      </ul>
+                    </div>
+                  </div>
+                </SheetContent>
+              </Sheet>
+            </div>
             <p className="text-xs text-muted-foreground">Today's health snapshot</p>
           </div>
           <Button
