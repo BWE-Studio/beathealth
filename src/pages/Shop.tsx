@@ -19,7 +19,7 @@ const products = [
     reviews: 2847,
     category: "Device",
     icon: Activity,
-    link: "https://www.amazon.in/dp/B07XYGHDRX",
+    link: "https://www.amazon.in/s?k=Omron+BP+Monitor",
     badge: "Best Seller",
   },
   {
@@ -34,7 +34,7 @@ const products = [
     reviews: 1523,
     category: "Device",
     icon: Activity,
-    link: "https://www.amazon.in/dp/B08G8RGQ3W",
+    link: "https://www.amazon.in/s?k=Accu-Chek+Glucometer",
     badge: "Popular",
   },
   {
@@ -49,7 +49,7 @@ const products = [
     reviews: 892,
     category: "Food",
     icon: Leaf,
-    link: "https://www.amazon.in/dp/B0BXYZ1234",
+    link: "https://www.amazon.in/s?k=Low+GI+Multigrain+Atta",
     badge: null,
   },
   {
@@ -64,7 +64,7 @@ const products = [
     reviews: 567,
     category: "Wellness",
     icon: Heart,
-    link: "https://www.amazon.in/dp/B0CXYZ5678",
+    link: "https://www.amazon.in/s?k=Hibiscus+Heart+Tea",
     badge: "Heart Health",
   },
   {
@@ -79,7 +79,7 @@ const products = [
     reviews: 3241,
     category: "Supplement",
     icon: Heart,
-    link: "https://www.amazon.in/dp/B0DXYZ9012",
+    link: "https://www.amazon.in/s?k=Omega-3+Fish+Oil",
     badge: "Top Rated",
   },
   {
@@ -94,7 +94,7 @@ const products = [
     reviews: 1089,
     category: "Device",
     icon: Activity,
-    link: "https://www.amazon.in/dp/B0EXYZ3456",
+    link: "https://www.amazon.in/s?k=Smart+Weighing+Scale",
     badge: null,
   },
 ];
