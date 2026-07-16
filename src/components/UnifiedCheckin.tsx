@@ -101,7 +101,7 @@ const throwCheckinError = (stepName: string, error: unknown) => {
 
 export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut }: UnifiedCheckinProps) => {
   const queryClient = useQueryClient();
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   
   // Determine ritual type based on time if auto
   const getAutoType = () => {
@@ -168,7 +168,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
     if (reading.glucose) setFastingSugar(reading.glucose.toString());
     setShowOCR(false);
     haptic("success");
-    toast.success(language === "hi" ? "रीडिंग ऑटो-भरी गई!" : "Reading auto-filled!");
+    toast.success(t("checkin.readingAutoFilled"));
   };
 
   const submitCheckin = useMutation({
@@ -374,7 +374,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
       });
 
       haptic("success");
-      toast.success(`${isMorning ? "Morning" : "Evening"} check-in complete! 🎉`);
+      toast.success(isMorning ? t("checkin.morningComplete") : t("checkin.eveningComplete"));
       
       // Reset and close
       resetForm();
@@ -382,8 +382,8 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
     },
     onError: (error) => {
       console.error(`[UnifiedCheckin] Check-in failed\n${traceJson(error)}`);
-      toast.error("Check-in failed", {
-        description: error instanceof Error ? error.message : "Please try again.",
+      toast.error(t("checkin.failed"), {
+        description: error instanceof Error ? error.message : t("checkin.tryAgain"),
       });
     },
   });
@@ -432,7 +432,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
         <SheetHeader className="pb-4">
           <SheetTitle className="flex items-center gap-2">
             {isMorning ? <Sun className="h-5 w-5 text-orange-500" /> : <Moon className="h-5 w-5 text-indigo-500" />}
-            {isMorning ? "Morning" : "Evening"} Check-in
+            {isMorning ? t("checkin.morningTitle") : t("checkin.eveningTitle")}
           </SheetTitle>
           <Progress value={progress} className="h-2" />
         </SheetHeader>
@@ -445,13 +445,13 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                 <Heart className="h-10 w-10 text-red-500 mx-auto mb-2" />
                 <h3 className="text-lg font-semibold">
                   {vitalsMode === "sugar"
-                    ? (language === "hi" ? "ब्लड शुगर" : "Blood Sugar")
-                    : (language === "hi" ? "ब्लड प्रेशर" : "Blood Pressure")}
+                    ? t("checkin.randomSugar")
+                    : t("checkin.bloodPressure")}
                 </h3>
                 <p className="text-sm text-muted-foreground">
                   {vitalsMode === "sugar"
-                    ? (language === "hi" ? "अपनी शुगर रीडिंग दर्ज करें (वैकल्पिक)" : "Enter your sugar reading (optional)")
-                    : (language === "hi" ? "अपनी BP रीडिंग दर्ज करें (वैकल्पिक)" : "Enter your BP reading (optional)")}
+                    ? t("checkin.enterSugarOptional")
+                    : t("checkin.enterBpOptional")}
                 </p>
               </div>
 
@@ -471,10 +471,10 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                   <div className="flex-1 text-left">
                     <p className="font-semibold flex items-center gap-2">
                       <Zap className="w-4 h-4 text-primary" />
-                      {language === "hi" ? "फोटो से ऑटो-भरें" : "Auto-fill from Photo"}
+                      {t("checkin.autoFillPhoto")}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {language === "hi" ? "BP मॉनिटर की फोटो लें" : "Take a photo of your BP monitor"}
+                      {t("checkin.bpPhotoHelp")}
                     </p>
                   </div>
                 </button>
@@ -494,7 +494,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                       className="w-full mt-2" 
                       onClick={() => setShowOCR(false)}
                     >
-                      {language === "hi" ? "रद्द करें" : "Cancel"}
+                      {t("common.cancel")}
                     </Button>
                   </div>
                 </div>
@@ -504,7 +504,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                 <div className="relative flex items-center gap-4 py-2">
                   <div className="flex-1 h-px bg-border" />
                   <span className="text-xs text-muted-foreground">
-                    {language === "hi" ? "या मैन्युअली दर्ज करें" : "or enter manually"}
+                    {t("checkin.orManual")}
                   </span>
                   <div className="flex-1 h-px bg-border" />
                 </div>
@@ -515,7 +515,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                   <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-4">
                     <div className="flex min-w-0 flex-col gap-2">
                       <Label htmlFor="checkin-systolic" className="block px-1 text-xs leading-5 text-muted-foreground">
-                        {language === "hi" ? "सिस्टोलिक" : "Systolic"}
+                        {t("checkin.systolicShort")}
                       </Label>
                       <Input
                         id="checkin-systolic"
@@ -528,7 +528,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                     </div>
                     <div className="flex min-w-0 flex-col gap-2">
                       <Label htmlFor="checkin-diastolic" className="block px-1 text-xs leading-5 text-muted-foreground">
-                        {language === "hi" ? "डायस्टोलिक" : "Diastolic"}
+                        {t("checkin.diastolicShort")}
                       </Label>
                       <Input
                         id="checkin-diastolic"
@@ -543,7 +543,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
 
                   <div className="flex min-w-0 flex-col gap-2">
                     <Label htmlFor="checkin-heart-rate" className="block px-1 text-xs leading-5 text-muted-foreground">
-                      {language === "hi" ? "हृदय गति (वैकल्पिक)" : "Heart Rate (optional)"}
+                      {t("checkin.heartRateOptional")}
                     </Label>
                     <Input
                       id="checkin-heart-rate"
@@ -562,7 +562,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Droplet className="h-5 w-5 text-blue-500" />
-                      <Label className="block text-sm leading-none">{language === "hi" ? "फास्टिंग शुगर" : "Fasting Blood Sugar"}</Label>
+                      <Label className="block text-sm leading-none">{t("checkin.fastingBloodSugar")}</Label>
                     </div>
                     <button
                       onClick={() => {
@@ -573,7 +573,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                       className="text-xs text-primary flex items-center gap-1"
                     >
                       <Camera className="w-3 h-3" />
-                      {language === "hi" ? "स्कैन" : "Scan"}
+                      {t("checkin.scan")}
                     </button>
                   </div>
                   <Input
@@ -595,7 +595,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                 <>
                   <div className="text-center mb-6">
                     <Moon className="h-12 w-12 text-indigo-500 mx-auto mb-2" />
-                    <h3 className="text-lg font-semibold">How did you sleep?</h3>
+                    <h3 className="text-lg font-semibold">{t("checkin.sleepQuestion")}</h3>
                   </div>
 
                   <div className="grid grid-cols-5 gap-2">
@@ -615,7 +615,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                            quality === "fair" ? "😐" : 
                            quality === "poor" ? "😩" : "😵"}
                         </span>
-                        <p className="text-xs mt-1 capitalize">{quality.replace("_", " ")}</p>
+                        <p className="text-xs mt-1 capitalize">{t(`checkin.${quality === "very_poor" ? "veryPoor" : quality}`)}</p>
                       </button>
                     ))}
                   </div>
@@ -624,7 +624,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                 <>
                   <div className="text-center mb-6">
                     <Brain className="h-12 w-12 text-purple-500 mx-auto mb-2" />
-                    <h3 className="text-lg font-semibold">How are you feeling?</h3>
+                    <h3 className="text-lg font-semibold">{t("checkin.feelingQuestion")}</h3>
                   </div>
 
                   <div className="flex justify-between px-4">
@@ -652,14 +652,14 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
             <div className="space-y-6 animate-fade-in">
               <div className="text-center mb-6">
                 <Users className="h-12 w-12 text-pink-500 mx-auto mb-2" />
-                <h3 className="text-lg font-semibold">Social Connection</h3>
-                <p className="text-sm text-muted-foreground">How connected do you feel?</p>
+                <h3 className="text-lg font-semibold">{t("checkin.socialConnection")}</h3>
+                <p className="text-sm text-muted-foreground">{t("checkin.connectedQuestion")}</p>
               </div>
 
               <div className="space-y-4">
                 {/* Talked to family */}
                 <div className="p-4 rounded-xl border border-border/50 bg-card">
-                  <p className="font-medium mb-3">Did you talk to family or friends?</p>
+                  <p className="font-medium mb-3">{t("checkin.talkedQuestion")}</p>
                   <div className="flex gap-3">
                     <button
                       onClick={() => setTalkedToFamily(true)}
@@ -669,7 +669,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                           : "bg-muted hover:bg-muted/80"
                       }`}
                     >
-                      Yes 😊
+                      {t("checkin.yes")} 😊
                     </button>
                     <button
                       onClick={() => setTalkedToFamily(false)}
@@ -679,14 +679,14 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                           : "bg-muted hover:bg-muted/80"
                       }`}
                     >
-                      No
+                      {t("checkin.no")}
                     </button>
                   </div>
                 </div>
 
                 {/* Loneliness check */}
                 <div className="p-4 rounded-xl border border-border/50 bg-card">
-                  <p className="font-medium mb-3">Feeling lonely?</p>
+                  <p className="font-medium mb-3">{t("checkin.lonelyQuestion")}</p>
                   <div className="grid grid-cols-4 gap-2">
                     {LONELINESS_OPTIONS.map((option) => (
                       <button
@@ -699,7 +699,15 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                         }`}
                       >
                         <span className="text-2xl block mb-1">{option.emoji}</span>
-                        <span className="text-xs">{option.label}</span>
+                        <span className="text-xs">
+                          {option.value === 1
+                            ? t("checkin.lonelyNotAtAll")
+                            : option.value === 2
+                            ? t("checkin.lonelyALittle")
+                            : option.value === 3
+                            ? t("checkin.lonelySomewhat")
+                            : t("checkin.lonelyVery")}
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -708,7 +716,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                 {/* Left home (evening only shown here too for consistency) */}
                 {!isMorning && (
                   <div className="p-4 rounded-xl border border-border/50 bg-card">
-                    <p className="font-medium mb-3">Did you step outside today?</p>
+                    <p className="font-medium mb-3">{t("checkin.outsideQuestion")}</p>
                     <div className="flex gap-3">
                       <button
                         onClick={() => setLeftHome(true)}
@@ -718,7 +726,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                             : "bg-muted hover:bg-muted/80"
                         }`}
                       >
-                        Yes ☀️
+                        {t("checkin.yes")} ☀️
                       </button>
                       <button
                         onClick={() => setLeftHome(false)}
@@ -728,7 +736,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                             : "bg-muted hover:bg-muted/80"
                         }`}
                       >
-                        No
+                        {t("checkin.no")}
                       </button>
                     </div>
                   </div>
@@ -743,7 +751,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
               <div className="text-center mb-6">
                 <Pill className="h-12 w-12 text-green-500 mx-auto mb-2" />
                 <h3 className="text-lg font-semibold">
-                  {isMorning ? "Morning medications?" : "Evening medications?"}
+                  {isMorning ? t("checkin.morningMedsQuestion") : t("checkin.eveningMedsQuestion")}
                 </h3>
               </div>
 
@@ -757,7 +765,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                   }`}
                 >
                   <Check className={`h-10 w-10 mx-auto mb-2 ${medsTaken === true ? "text-green-500" : "text-muted-foreground"}`} />
-                  <p className="font-medium text-lg">Yes</p>
+                  <p className="font-medium text-lg">{t("checkin.yes")}</p>
                 </button>
                 <button
                   onClick={() => setMedsTaken(false)}
@@ -768,7 +776,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                   }`}
                 >
                   <span className={`text-3xl block mb-2 ${medsTaken === false ? "" : "opacity-50"}`}>⏳</span>
-                  <p className="font-medium text-lg">Not yet</p>
+                  <p className="font-medium text-lg">{t("checkin.notYet")}</p>
                 </button>
               </div>
             </div>
@@ -780,12 +788,12 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
               {isMorning ? (
                 <>
                   <div className="text-center mb-6">
-                    <h3 className="text-lg font-semibold">Any notes for today?</h3>
-                    <p className="text-sm text-muted-foreground">Optional - add any thoughts</p>
+                    <h3 className="text-lg font-semibold">{t("checkin.notesToday")}</h3>
+                    <p className="text-sm text-muted-foreground">{t("checkin.notesTodaySubtitle")}</p>
                   </div>
                   <textarea
                     className="w-full h-32 p-4 rounded-xl border border-border/50 bg-background resize-none text-base"
-                    placeholder="How are you feeling today?"
+                    placeholder={t("checkin.notesTodayPlaceholder")}
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                   />
@@ -795,15 +803,15 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                   <div className="text-center mb-6">
                     <Footprints className="h-12 w-12 text-green-500 mx-auto mb-2" />
                     <h3 className="text-lg font-semibold">
-                      {language === "hi" ? "कदमों की गिनती" : "Steps Count"}
+                      {t("checkin.stepsCount")}
                     </h3>
                     <p className="text-sm text-muted-foreground">
-                      {language === "hi" ? "आज के कदमों की संख्या दर्ज करें" : "Enter your steps count for today"}
+                      {t("checkin.enterSteps")}
                     </p>
                   </div>
 
                   <div className="space-y-2">
-                    <Label>{language === "hi" ? "कदमों की गिनती" : "Steps Count"}</Label>
+                    <Label>{t("checkin.stepsCount")}</Label>
                     <Input
                       type="number"
                       placeholder="5000"
@@ -812,7 +820,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                       className="text-center text-xl"
                     />
                     <p className="text-xs text-muted-foreground text-center">
-                      {language === "hi" ? "कदम" : "steps"}
+                      {t("checkin.steps")}
                     </p>
                   </div>
                 </>
@@ -824,12 +832,12 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
           {step === 6 && !isMorning && (
             <div className="space-y-6 animate-fade-in">
               <div className="text-center mb-6">
-                <h3 className="text-lg font-semibold">Any notes about your day?</h3>
-                <p className="text-sm text-muted-foreground">Optional - reflect on your day</p>
+                <h3 className="text-lg font-semibold">{t("checkin.notesDay")}</h3>
+                <p className="text-sm text-muted-foreground">{t("checkin.notesDaySubtitle")}</p>
               </div>
               <textarea
                 className="w-full h-32 p-4 rounded-xl border border-border/50 bg-background resize-none text-base"
-                placeholder="How was your day?"
+                placeholder={t("checkin.notesDayPlaceholder")}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
               />
@@ -842,7 +850,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
           {step > 1 && (
             <Button variant="outline" onClick={handleBack} className="gap-2">
               <ArrowLeft className="h-4 w-4" />
-              Back
+              {t("checkin.back")}
             </Button>
           )}
           <Button 
@@ -853,11 +861,11 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
             {step === totalSteps ? (
               <>
                 <Check className="h-4 w-4" />
-                Complete
+                {t("checkin.complete")}
               </>
             ) : (
               <>
-                {canProceed() ? "Next" : "Skip"}
+                {canProceed() ? t("checkin.next") : t("common.skip")}
                 <ArrowRight className="h-4 w-4" />
               </>
             )}

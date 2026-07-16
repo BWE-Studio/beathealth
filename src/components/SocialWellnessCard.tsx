@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { format, startOfWeek, endOfWeek } from "date-fns";
 import { haptic } from "@/lib/haptics";
 import { ThemedIcon, ThemedEmoji } from "./ThemedIcon";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface SocialLog {
   id: string;
@@ -35,12 +36,12 @@ interface WellnessActivity {
 }
 
 const INTERACTION_TYPES = [
-  { value: "family_call", label: "Family Call", emoji: "📞" },
-  { value: "friend_visit", label: "Friend Visit", emoji: "👋" },
-  { value: "community_event", label: "Community Event", emoji: "🎉" },
-  { value: "religious_gathering", label: "Temple/Mosque/Church", emoji: "🙏" },
-  { value: "neighbor_chat", label: "Neighbor Chat", emoji: "🏠" },
-  { value: "video_call", label: "Video Call", emoji: "📱" },
+  { value: "family_call", labelKey: "social.familyCall", emoji: "📞" },
+  { value: "friend_visit", labelKey: "social.friendVisit", emoji: "👋" },
+  { value: "community_event", labelKey: "social.communityEvent", emoji: "🎉" },
+  { value: "religious_gathering", labelKey: "social.religiousGathering", emoji: "🙏" },
+  { value: "neighbor_chat", labelKey: "social.neighborChat", emoji: "🏠" },
+  { value: "video_call", labelKey: "social.videoCall", emoji: "📱" },
 ];
 
 const MOOD_LEVELS = [
@@ -53,6 +54,7 @@ const MOOD_LEVELS = [
 
 export const SocialWellnessCard = () => {
   const queryClient = useQueryClient();
+  const { t } = useLanguage();
   const [showLogDialog, setShowLogDialog] = useState(false);
   const [selectedInteractions, setSelectedInteractions] = useState<string[]>([]);
   const [moodScore, setMoodScore] = useState<number>(3);
@@ -152,11 +154,11 @@ export const SocialWellnessCard = () => {
       setSelectedInteractions([]);
       setNotes("");
       haptic("success");
-      toast.success("Social wellness logged!");
+      toast.success(t("social.logged"));
     },
     onError: (error) => {
       console.error("Error logging social wellness:", error);
-      toast.error("Failed to log");
+      toast.error(t("social.logFailed"));
     },
   });
 
@@ -202,23 +204,23 @@ export const SocialWellnessCard = () => {
         <CardTitle className="flex items-center justify-between">
           <span className="flex items-center gap-2 text-lg">
             <ThemedIcon icon={Users} size="sm" variant="primary" />
-            Social Wellness
+            {t("social.title")}
           </span>
           <Dialog open={showLogDialog} onOpenChange={setShowLogDialog}>
             <DialogTrigger asChild>
               <Button size="sm" variant="ghost" className="gap-1">
                 <Plus className="h-4 w-4" />
-                Log
+                {t("social.log")}
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
               <DialogHeader>
-                <DialogTitle>Log Social Activity</DialogTitle>
+                <DialogTitle>{t("social.logTitle")}</DialogTitle>
               </DialogHeader>
               <div className="space-y-6 py-4">
                 {/* Interaction Types */}
                 <div className="space-y-2">
-                  <Label>Today's interactions</Label>
+                  <Label>{t("social.interactionsToday")}</Label>
                   <div className="grid grid-cols-2 gap-2">
                     {INTERACTION_TYPES.map((type) => (
                       <button
@@ -231,7 +233,7 @@ export const SocialWellnessCard = () => {
                         }`}
                       >
                         <ThemedEmoji emoji={type.emoji} size="md" />
-                        <span className="text-sm font-medium">{type.label}</span>
+                        <span className="text-sm font-medium">{t(type.labelKey)}</span>
                       </button>
                     ))}
                   </div>
@@ -239,7 +241,7 @@ export const SocialWellnessCard = () => {
 
                 {/* Mood Score */}
                 <div className="space-y-2">
-                  <Label>How's your mood today?</Label>
+                  <Label>{t("social.moodToday")}</Label>
                   <div className="flex justify-between">
                     {MOOD_LEVELS.map((level) => (
                       <button
@@ -259,7 +261,7 @@ export const SocialWellnessCard = () => {
 
                 {/* Connection Score */}
                 <div className="space-y-2">
-                  <Label>How connected do you feel? (1 = Lonely, 5 = Very Connected)</Label>
+                  <Label>{t("social.connectedScale")}</Label>
                   <div className="flex justify-between">
                     {[1, 2, 3, 4, 5].map((value) => (
                       <button
@@ -281,7 +283,7 @@ export const SocialWellnessCard = () => {
                 <div className="flex items-center justify-between p-3 rounded-lg border border-border/50">
                   <div className="flex items-center gap-2">
                     <Home className="h-5 w-5 text-muted-foreground" />
-                    <span>Did you go outside today?</span>
+                    <span>{t("social.outsideToday")}</span>
                   </div>
                   <div className="flex gap-2">
                     <Button
@@ -289,23 +291,23 @@ export const SocialWellnessCard = () => {
                       variant={leftHome ? "default" : "outline"}
                       onClick={() => setLeftHome(true)}
                     >
-                      Yes
+                      {t("checkin.yes")}
                     </Button>
                     <Button
                       size="sm"
                       variant={!leftHome ? "default" : "outline"}
                       onClick={() => setLeftHome(false)}
                     >
-                      No
+                      {t("checkin.no")}
                     </Button>
                   </div>
                 </div>
 
                 {/* Notes */}
                 <div className="space-y-2">
-                  <Label>Notes (optional)</Label>
+                  <Label>{t("social.notesOptional")}</Label>
                   <Textarea
-                    placeholder="How was your day?"
+                    placeholder={t("social.notesPlaceholder")}
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                   />
@@ -315,7 +317,7 @@ export const SocialWellnessCard = () => {
                   className="w-full" 
                   onClick={() => logInteraction.mutate()}
                 >
-                  Save Log
+                  {t("common.save")}
                 </Button>
               </div>
             </DialogContent>
@@ -327,15 +329,15 @@ export const SocialWellnessCard = () => {
         <div className="grid grid-cols-3 gap-3 text-center">
           <div className="p-2 rounded-lg bg-pink-500/10">
             <p className="text-2xl font-bold text-pink-500">{totalInteractions}</p>
-            <p className="text-xs text-muted-foreground">Interactions</p>
+            <p className="text-xs text-muted-foreground">{t("social.interactions")}</p>
           </div>
           <div className="p-2 rounded-lg bg-green-500/10">
             <p className="text-2xl font-bold text-green-500">{daysLeftHome}/7</p>
-            <p className="text-xs text-muted-foreground">Days Out</p>
+            <p className="text-xs text-muted-foreground">{t("social.daysOut")}</p>
           </div>
           <div className="p-2 rounded-lg bg-purple-500/10">
             <p className="text-2xl font-bold text-purple-500">{wellnessScore}</p>
-            <p className="text-xs text-muted-foreground">Wellness</p>
+            <p className="text-xs text-muted-foreground">{t("social.wellness")}</p>
           </div>
         </div>
 
@@ -344,7 +346,7 @@ export const SocialWellnessCard = () => {
           <div className="p-3 rounded-lg border border-green-500/30 bg-green-500/5">
             <div className="flex items-center gap-2 text-green-600">
               <Heart className="h-4 w-4" />
-              <span className="text-sm">Today logged!</span>
+              <span className="text-sm">{t("social.loggedToday")}</span>
             </div>
             {todayLog.interaction_types && todayLog.interaction_types.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-2">
@@ -362,7 +364,7 @@ export const SocialWellnessCard = () => {
         ) : (
           <div className="p-3 rounded-lg border border-yellow-500/30 bg-yellow-500/5">
             <p className="text-sm text-yellow-600">
-              Haven't logged today yet
+              {t("social.notLoggedToday")}
             </p>
           </div>
         )}
@@ -370,7 +372,7 @@ export const SocialWellnessCard = () => {
         {/* Suggested Activities */}
         {suggestedActivities && suggestedActivities.length > 0 && wellnessScore < 50 && (
           <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">Suggested activities:</p>
+            <p className="text-xs text-muted-foreground">{t("social.suggested")}</p>
             {suggestedActivities.slice(0, 2).map((activity) => (
               <div 
                 key={activity.id}

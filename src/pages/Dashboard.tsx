@@ -209,7 +209,7 @@ const Dashboard = () => {
     { title: t("dashboard.viewTrends"), icon: TrendingUp, color: "text-blue-500", bg: "bg-blue-500/10", path: "/app/insights" },
     { title: t("dashboard.familyDashboard"), icon: Users, color: "text-violet-500", bg: "bg-violet-500/10", path: "/app/family" },
     { title: t("dashboard.aiCopilot"), icon: MessageCircle, color: "text-primary", bg: "bg-primary/10", path: "/app/coach" },
-    { title: "Medications", icon: Pill, color: "text-secondary", bg: "bg-secondary/10", path: "/app/medications" },
+    { title: t("dashboard.medications"), icon: Pill, color: "text-secondary", bg: "bg-secondary/10", path: "/app/medications" },
   ];
 
   return (
@@ -235,7 +235,7 @@ const Dashboard = () => {
                 <Flame className="w-5 h-5 text-orange-500" />
                 <div className="text-right">
                   <p className="text-lg font-bold leading-none text-orange-600">{mainStreakCount}</p>
-                  <p className="text-[10px] text-orange-500/70 uppercase tracking-wide">days</p>
+                  <p className="text-[10px] text-orange-500/70 uppercase tracking-wide">{t("common.days")}</p>
                 </div>
               </div>
             )}
@@ -251,7 +251,7 @@ const Dashboard = () => {
                 onClick={() => haptic("light")}
               >
                 {isMorning ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-                Start {isMorning ? "Morning" : "Evening"} Check-in
+                {isMorning ? t("checkin.startMorning") : t("checkin.startEvening")}
               </Button>
             </SheetTrigger>
             <SheetContent side="bottom" className="h-[90vh] rounded-t-3xl p-0">
@@ -275,7 +275,7 @@ const Dashboard = () => {
         {/* Device Quick Actions - Scan BP/Sugar, Camera Heart Rate */}
         <section className="mb-6">
           <div className="flex items-center justify-between mb-2">
-            <h2 className="text-sm font-medium text-muted-foreground">Smart Capture</h2>
+            <h2 className="text-sm font-medium text-muted-foreground">{t("dashboard.smartCapture")}</h2>
           </div>
           <DeviceQuickActions />
         </section>
@@ -336,7 +336,7 @@ const Dashboard = () => {
         <section className="mb-6">
           <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
             <span className="w-1 h-5 bg-secondary rounded-full" />
-            Health Monitoring
+            {t("dashboard.healthMonitoring")}
           </h2>
           <div className="grid sm:grid-cols-2 gap-3">
             <EnvironmentalAlert />
@@ -353,7 +353,7 @@ const Dashboard = () => {
         <section className="mb-6">
           <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
             <span className="w-1 h-5 bg-secondary rounded-full" />
-            Quick Access
+            {t("dashboard.quickAccess")}
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {quickAccessItems.map((item, i) => (
@@ -379,21 +379,21 @@ const Dashboard = () => {
               className="flex flex-col items-center p-3 rounded-xl bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-500/10 dark:to-orange-500/10 border border-amber-200/30 dark:border-amber-500/20 transition-all hover:scale-[1.02] active:scale-95"
             >
               <ShoppingBag className="w-5 h-5 text-amber-600 mb-1.5" />
-              <span className="text-xs font-medium">Shop</span>
+              <span className="text-xs font-medium">{t("dashboard.shop")}</span>
             </button>
             <button
               onClick={() => navigateTo("/app/challenges")}
               className="flex flex-col items-center p-3 rounded-xl bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-500/10 dark:to-teal-500/10 border border-emerald-200/30 dark:border-emerald-500/20 transition-all hover:scale-[1.02] active:scale-95"
             >
               <Trophy className="w-5 h-5 text-emerald-600 mb-1.5" />
-              <span className="text-xs font-medium">Challenges</span>
+              <span className="text-xs font-medium">{t("dashboard.challenges")}</span>
             </button>
             <button
               onClick={() => navigateTo("/app/subscription")}
               className="flex flex-col items-center p-3 rounded-xl bg-gradient-to-br from-rose-50 to-pink-50 dark:from-primary/10 dark:to-accent/10 border border-primary/20 transition-all hover:scale-[1.02] active:scale-95"
             >
               <Crown className="w-5 h-5 text-primary mb-1.5" />
-              <span className="text-xs font-medium">Premium</span>
+              <span className="text-xs font-medium">{t("dashboard.premium")}</span>
             </button>
           </div>
         </section>
@@ -403,7 +403,7 @@ const Dashboard = () => {
           <section className="mb-6">
             <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
               <span className="w-1 h-5 bg-amber-500 rounded-full" />
-              Achievements
+              {t("dashboard.achievements")}
             </h2>
             <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
               {achievements.map((achievement) => (

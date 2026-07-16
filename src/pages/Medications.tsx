@@ -9,9 +9,11 @@ import { Pill, Plus, Check, X, Trash2 } from "lucide-react";
 import { useMedications } from "@/hooks/useMedications";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 const Medications = () => {
   const { medications, logs, adherenceRate, isLoading, addMedication, logMedication, deleteMedication } = useMedications();
+  const { t } = useLanguage();
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [newMed, setNewMed] = useState({
     name: "",
@@ -39,7 +41,7 @@ const Medications = () => {
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading medications...</p>
+          <p className="text-muted-foreground">{t("medications.loading")}</p>
         </div>
       </div>
     );
@@ -52,60 +54,60 @@ const Medications = () => {
       <main className="container mx-auto px-4 py-4 md:py-8 max-w-4xl">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold mb-2">Medications</h1>
-            <p className="text-muted-foreground">Manage your medications and track adherence</p>
+            <h1 className="text-2xl md:text-3xl font-bold mb-2">{t("medications.title")}</h1>
+            <p className="text-muted-foreground">{t("medications.subtitle")}</p>
           </div>
           <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
             <DialogTrigger asChild>
               <Button className="gap-2">
                 <Plus className="h-4 w-4" />
-                Add Medication
+                {t("medications.add")}
               </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Add New Medication</DialogTitle>
+                <DialogTitle>{t("medications.addNew")}</DialogTitle>
               </DialogHeader>
               <div className="space-y-4 mt-4">
                 <div>
-                  <Label>Medication Name *</Label>
+                  <Label>{t("medications.name")}</Label>
                   <Input
                     value={newMed.name}
                     onChange={(e) => setNewMed({ ...newMed, name: e.target.value })}
-                    placeholder="e.g., Aspirin"
+                    placeholder={t("medications.namePlaceholder")}
                   />
                 </div>
                 <div>
-                  <Label>Dosage</Label>
+                  <Label>{t("medications.dosage")}</Label>
                   <Input
                     value={newMed.dosage}
                     onChange={(e) => setNewMed({ ...newMed, dosage: e.target.value })}
-                    placeholder="e.g., 100mg"
+                    placeholder={t("medications.dosagePlaceholder")}
                   />
                 </div>
                 <div>
-                  <Label>Frequency</Label>
+                  <Label>{t("medications.frequency")}</Label>
                   <Select value={newMed.frequency} onValueChange={(value) => setNewMed({ ...newMed, frequency: value })}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="morning">Morning Only</SelectItem>
-                      <SelectItem value="evening">Evening Only</SelectItem>
-                      <SelectItem value="both">Morning & Evening</SelectItem>
+                      <SelectItem value="morning">{t("medications.morningOnly")}</SelectItem>
+                      <SelectItem value="evening">{t("medications.eveningOnly")}</SelectItem>
+                      <SelectItem value="both">{t("medications.morningEvening")}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
-                  <Label>Notes</Label>
+                  <Label>{t("medications.notes")}</Label>
                   <Input
                     value={newMed.notes}
                     onChange={(e) => setNewMed({ ...newMed, notes: e.target.value })}
-                    placeholder="Any special instructions"
+                    placeholder={t("medications.notesPlaceholder")}
                   />
                 </div>
                 <Button onClick={handleAddMedication} className="w-full" disabled={!newMed.name}>
-                  Add Medication
+                  {t("medications.add")}
                 </Button>
               </div>
             </DialogContent>
@@ -115,12 +117,14 @@ const Medications = () => {
         {/* Adherence Card */}
         <Card className="p-6 mb-6 shadow-elevated">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">Adherence Rate (Last 7 Days)</h2>
+            <h2 className="text-lg font-semibold">{t("medications.adherenceRate")}</h2>
             <span className="text-3xl font-bold text-primary">{adherenceRate}%</span>
           </div>
           <Progress value={adherenceRate} className="h-3" />
           <p className="text-sm text-muted-foreground mt-2">
-            {logs.filter(log => log.taken_at).length} of {logs.length} medications taken on time
+            {t("medications.adherenceProgress")
+              .replace("{taken}", String(logs.filter(log => log.taken_at).length))
+              .replace("{total}", String(logs.length))}
           </p>
         </Card>
 
@@ -129,10 +133,10 @@ const Medications = () => {
           {medications.length === 0 ? (
             <Card className="p-8 text-center">
               <Pill className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <p className="text-muted-foreground mb-4">No medications added yet</p>
+              <p className="text-muted-foreground mb-4">{t("medications.noMedications")}</p>
               <Button onClick={() => setShowAddDialog(true)} variant="outline">
                 <Plus className="h-4 w-4 mr-2" />
-                Add Your First Medication
+                {t("medications.addFirst")}
               </Button>
             </Card>
           ) : (
@@ -153,15 +157,15 @@ const Medications = () => {
                         <h3 className="font-semibold">{med.name}</h3>
                       </div>
                       {med.dosage && (
-                        <p className="text-sm text-muted-foreground mb-1">Dosage: {med.dosage}</p>
+                        <p className="text-sm text-muted-foreground mb-1">{t("medications.dosagePrefix")} {med.dosage}</p>
                       )}
                       <p className="text-sm text-muted-foreground mb-1">
-                        Frequency:{" "}
+                        {t("medications.frequencyPrefix")}{" "}
                         {med.frequency === "morning"
-                          ? "Morning"
+                          ? t("medications.morning")
                           : med.frequency === "evening"
-                          ? "Evening"
-                          : "Morning & Evening"}
+                          ? t("medications.evening")
+                          : t("medications.morningEvening")}
                       </p>
                       {med.notes && <p className="text-sm text-muted-foreground italic">{med.notes}</p>}
                     </div>
@@ -175,7 +179,7 @@ const Medications = () => {
                             className="gap-1"
                           >
                             <Check className="h-4 w-4" />
-                            Taken
+                            {t("medications.taken")}
                           </Button>
                           <Button
                             size="sm"
@@ -184,13 +188,13 @@ const Medications = () => {
                             className="gap-1"
                           >
                             <X className="h-4 w-4" />
-                            Skip
+                            {t("medications.skip")}
                           </Button>
                         </>
                       ) : (
                         <div className="flex items-center gap-2 text-green-600">
                           <Check className="h-5 w-5" />
-                          <span className="text-sm font-medium">Taken Today</span>
+                          <span className="text-sm font-medium">{t("medications.takenToday")}</span>
                         </div>
                       )}
                       <Button

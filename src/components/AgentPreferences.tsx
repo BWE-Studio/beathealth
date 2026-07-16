@@ -19,6 +19,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface AgentPreferencesData {
   id: string;
@@ -35,13 +36,14 @@ interface AgentPreferencesData {
 }
 
 const autonomyLevels = [
-  { value: 'minimal', label: 'Minimal', description: 'Agent observes only, no automatic actions' },
-  { value: 'balanced', label: 'Balanced', description: 'Nudges & celebrations, no goal changes' },
-  { value: 'full', label: 'Full', description: 'Full autonomy including goal adjustments' }
+  { value: 'minimal', labelKey: 'agent.minimal', descriptionKey: 'agent.minimalDesc' },
+  { value: 'balanced', labelKey: 'agent.balanced', descriptionKey: 'agent.balancedDesc' },
+  { value: 'full', labelKey: 'agent.full', descriptionKey: 'agent.fullDesc' }
 ];
 
 export function AgentPreferences() {
   const queryClient = useQueryClient();
+  const { t } = useLanguage();
   const [hasChanges, setHasChanges] = useState(false);
   const [formData, setFormData] = useState<Partial<AgentPreferencesData>>({
     autonomy_level: 'balanced',
@@ -95,11 +97,11 @@ export function AgentPreferences() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["agent-preferences"] });
       setHasChanges(false);
-      toast.success("Agent preferences saved");
+      toast.success(t("agent.preferencesSaved"));
     },
     onError: (error) => {
       console.error("Save error:", error);
-      toast.error("Failed to save preferences");
+      toast.error(t("agent.preferencesFailed"));
     }
   });
 
@@ -140,19 +142,19 @@ export function AgentPreferences() {
             <Bot className="w-5 h-5 text-primary" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold">Agent Settings</h2>
-            <p className="text-sm text-muted-foreground">Control how your AI agent behaves</p>
+            <h2 className="text-lg font-semibold">{t("agent.settings")}</h2>
+            <p className="text-sm text-muted-foreground">{t("agent.settingsDesc")}</p>
           </div>
         </div>
         {hasChanges && (
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" onClick={handleReset}>
               <RotateCcw className="w-4 h-4 mr-1" />
-              Reset
+              {t("common.reset")}
             </Button>
             <Button size="sm" onClick={handleSave} disabled={saveMutation.isPending}>
               <Save className="w-4 h-4 mr-1" />
-              Save
+              {t("common.save")}
             </Button>
           </div>
         )}
@@ -160,7 +162,7 @@ export function AgentPreferences() {
 
       {/* Autonomy Level */}
       <div className="mb-6">
-        <Label className="text-sm font-medium mb-3 block">Autonomy Level</Label>
+        <Label className="text-sm font-medium mb-3 block">{t("agent.autonomyLevel")}</Label>
         <div className="space-y-3">
           <Slider
             value={[autonomyIndex >= 0 ? autonomyIndex : 1]}
@@ -175,16 +177,16 @@ export function AgentPreferences() {
                 key={level.value}
                 className={formData.autonomy_level === level.value ? 'text-primary font-medium' : ''}
               >
-                {level.label}
+                {t(level.labelKey)}
               </span>
             ))}
           </div>
           <div className="p-3 rounded-lg bg-muted/50 border border-border/50">
             <Badge variant="outline" className="mb-2">
-              {autonomyLevels.find(l => l.value === formData.autonomy_level)?.label}
+              {t(autonomyLevels.find(l => l.value === formData.autonomy_level)?.labelKey || "agent.balanced")}
             </Badge>
             <p className="text-sm text-muted-foreground">
-              {autonomyLevels.find(l => l.value === formData.autonomy_level)?.description}
+              {t(autonomyLevels.find(l => l.value === formData.autonomy_level)?.descriptionKey || "agent.balancedDesc")}
             </p>
           </div>
         </div>
@@ -194,14 +196,14 @@ export function AgentPreferences() {
 
       {/* Feature Toggles */}
       <div className="space-y-4">
-        <Label className="text-sm font-medium">Automatic Actions</Label>
+        <Label className="text-sm font-medium">{t("agent.automaticActions")}</Label>
         
         <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30">
           <div className="flex items-center gap-3">
             <Bell className="w-4 h-4 text-blue-500" />
             <div>
-              <p className="text-sm font-medium">Auto Nudges</p>
-              <p className="text-xs text-muted-foreground">Proactive health reminders</p>
+              <p className="text-sm font-medium">{t("agent.autoNudges")}</p>
+              <p className="text-xs text-muted-foreground">{t("agent.autoNudgesDesc")}</p>
             </div>
           </div>
           <Switch
@@ -214,8 +216,8 @@ export function AgentPreferences() {
           <div className="flex items-center gap-3">
             <Sparkles className="w-4 h-4 text-amber-500" />
             <div>
-              <p className="text-sm font-medium">Auto Celebrations</p>
-              <p className="text-xs text-muted-foreground">Automatic achievement recognition</p>
+              <p className="text-sm font-medium">{t("agent.autoCelebrations")}</p>
+              <p className="text-xs text-muted-foreground">{t("agent.autoCelebrationsDesc")}</p>
             </div>
           </div>
           <Switch
@@ -228,8 +230,8 @@ export function AgentPreferences() {
           <div className="flex items-center gap-3">
             <Target className="w-4 h-4 text-violet-500" />
             <div>
-              <p className="text-sm font-medium">Auto Goal Adjustment</p>
-              <p className="text-xs text-muted-foreground">Automatically adjust goals based on progress</p>
+              <p className="text-sm font-medium">{t("agent.autoGoalAdjustment")}</p>
+              <p className="text-xs text-muted-foreground">{t("agent.autoGoalAdjustmentDesc")}</p>
             </div>
           </div>
           <Switch
@@ -243,8 +245,8 @@ export function AgentPreferences() {
           <div className="flex items-center gap-3">
             <AlertTriangle className="w-4 h-4 text-red-500" />
             <div>
-              <p className="text-sm font-medium">Health Alerts</p>
-              <p className="text-xs text-muted-foreground">Escalate concerning health patterns</p>
+              <p className="text-sm font-medium">{t("agent.healthAlerts")}</p>
+              <p className="text-xs text-muted-foreground">{t("agent.healthAlertsDesc")}</p>
             </div>
           </div>
           <Switch
@@ -258,11 +260,11 @@ export function AgentPreferences() {
 
       {/* Limits */}
       <div className="space-y-4">
-        <Label className="text-sm font-medium">Daily Limits</Label>
+        <Label className="text-sm font-medium">{t("agent.dailyLimits")}</Label>
         
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-sm">Max nudges per day</span>
+            <span className="text-sm">{t("agent.maxNudgesPerDay")}</span>
             <Badge variant="secondary">{formData.max_nudges_per_day}</Badge>
           </div>
           <Slider
@@ -276,7 +278,7 @@ export function AgentPreferences() {
 
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-sm">Max goal adjustments per week</span>
+            <span className="text-sm">{t("agent.maxGoalAdjustmentsPerWeek")}</span>
             <Badge variant="secondary">{formData.max_goal_adjustments_per_week}</Badge>
           </div>
           <Slider
@@ -295,14 +297,14 @@ export function AgentPreferences() {
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <Moon className="w-4 h-4 text-muted-foreground" />
-          <Label className="text-sm font-medium">Quiet Hours</Label>
+          <Label className="text-sm font-medium">{t("agent.quietHours")}</Label>
         </div>
         <p className="text-xs text-muted-foreground">
-          Agent won't send non-urgent notifications during quiet hours
+          {t("agent.quietHoursDesc")}
         </p>
         <div className="flex items-center gap-4">
           <div>
-            <Label className="text-xs text-muted-foreground">From</Label>
+            <Label className="text-xs text-muted-foreground">{t("agent.from")}</Label>
             <input
               type="time"
               value={formData.quiet_hours_start?.slice(0, 5) || '22:00'}
@@ -311,7 +313,7 @@ export function AgentPreferences() {
             />
           </div>
           <div>
-            <Label className="text-xs text-muted-foreground">To</Label>
+            <Label className="text-xs text-muted-foreground">{t("agent.to")}</Label>
             <input
               type="time"
               value={formData.quiet_hours_end?.slice(0, 5) || '07:00'}

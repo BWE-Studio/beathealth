@@ -100,7 +100,7 @@ export const Header = () => {
 
       // Validate file size (2MB)
       if (file.size > 2 * 1024 * 1024) {
-        toast.error("File size must be less than 2MB");
+        toast.error(t("profile.fileTooLarge"));
         return;
       }
 
@@ -140,11 +140,11 @@ export const Header = () => {
 
       if (updateError) throw updateError;
 
-      toast.success("Profile photo updated");
+      toast.success(t("profile.photoUpdated"));
       fetchProfile(user.id);
     } catch (error) {
       console.error("Error uploading avatar:", error);
-      toast.error("Failed to upload photo");
+      toast.error(t("profile.photoUploadFailed"));
     } finally {
       setIsUploadingAvatar(false);
     }
@@ -166,12 +166,12 @@ export const Header = () => {
 
       if (error) throw error;
       
-      toast.success("Profile updated successfully");
+      toast.success(t("profile.saved"));
       setIsEditingProfile(false);
       fetchProfile(user.id);
     } catch (error) {
       console.error("Error updating profile:", error);
-      toast.error("Failed to update profile");
+      toast.error(t("profile.saveFailed"));
     }
   };
 
@@ -207,16 +207,16 @@ export const Header = () => {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="gap-2 h-auto py-2 px-3 hover:bg-accent/50 transition-all">
                 <Avatar className="w-10 h-10 border-2 border-primary ring-2 ring-primary/10">
-                  {profile?.avatar_url && <AvatarImage src={profile.avatar_url} alt={profile.full_name || "User"} />}
+                  {profile?.avatar_url && <AvatarImage src={profile.avatar_url} alt={profile.full_name || t("common.user")} />}
                   <AvatarFallback className="bg-gradient-to-br from-primary/20 to-primary/10 text-primary text-base font-bold">
                     {initials}
                   </AvatarFallback>
                 </Avatar>
                 <span className="hidden md:flex flex-col items-start">
                   <span className="text-sm font-semibold">
-                    {profile?.full_name || profile?.email?.split('@')[0] || "User"}
+                    {profile?.full_name || profile?.email?.split('@')[0] || t("common.user")}
                   </span>
-                  <span className="text-xs text-muted-foreground">View Profile</span>
+                  <span className="text-xs text-muted-foreground">{t("header.viewProfile")}</span>
                 </span>
               </Button>
             </DropdownMenuTrigger>
@@ -226,7 +226,7 @@ export const Header = () => {
                 <div className="flex items-start gap-3">
                   <div className="relative">
                     <Avatar className="w-16 h-16 border-2 border-primary shadow-lg">
-                      {profile?.avatar_url && <AvatarImage src={profile.avatar_url} alt={profile.full_name || "User"} />}
+                      {profile?.avatar_url && <AvatarImage src={profile.avatar_url} alt={profile.full_name || t("common.user")} />}
                       <AvatarFallback className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground text-xl font-bold">
                         {initials}
                       </AvatarFallback>
@@ -253,7 +253,7 @@ export const Header = () => {
                       <>
                         <div className="flex items-center justify-between">
                           <h3 className="font-semibold text-base truncate">
-                            {profile?.full_name || profile?.email?.split('@')[0] || "User"}
+                            {profile?.full_name || profile?.email?.split('@')[0] || t("common.user")}
                           </h3>
                           <Button
                             variant="ghost"
@@ -264,7 +264,7 @@ export const Header = () => {
                             <Edit className="w-3.5 h-3.5" />
                           </Button>
                         </div>
-                        <p className="text-xs text-muted-foreground">Complete your profile</p>
+                        <p className="text-xs text-muted-foreground">{t("header.completeProfile")}</p>
                         {profile?.weight_kg && (
                           <div className="flex gap-3 mt-2 text-xs">
                             <span className="bg-background/50 px-2 py-1 rounded">
@@ -284,7 +284,7 @@ export const Header = () => {
                           <Input
                             value={editForm.full_name}
                             onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })}
-                            placeholder="Full Name"
+                            placeholder={t("profile.fullName")}
                             className="h-7 text-sm"
                           />
                           <Button
@@ -308,14 +308,14 @@ export const Header = () => {
                           <Input
                             value={editForm.weight_kg}
                             onChange={(e) => setEditForm({ ...editForm, weight_kg: e.target.value })}
-                            placeholder="Weight (kg)"
+                            placeholder={t("profile.weight")}
                             type="number"
                             className="h-7 text-xs"
                           />
                           <Input
                             value={editForm.height_cm}
                             onChange={(e) => setEditForm({ ...editForm, height_cm: e.target.value })}
-                            placeholder="Height (cm)"
+                            placeholder={t("profile.height")}
                             type="number"
                             className="h-7 text-xs"
                           />
@@ -329,12 +329,12 @@ export const Header = () => {
               {/* Quick Actions */}
               <div className="p-2">
                 <DropdownMenuLabel className="text-xs text-muted-foreground px-2 pb-1">
-                  Quick Actions
+                  {t("header.quickActions")}
                 </DropdownMenuLabel>
                 <DialogTrigger asChild>
                   <DropdownMenuItem className="cursor-pointer py-2.5">
                     <Activity className="w-4 h-4 mr-3 text-primary" />
-                    <span>Connect Devices</span>
+                    <span>{t("profile.connectDevices")}</span>
                   </DropdownMenuItem>
                 </DialogTrigger>
                 <DropdownMenuItem onClick={async () => {
@@ -348,7 +348,7 @@ export const Header = () => {
                   }
                 }} className="py-2.5">
                   <Settings className="w-4 h-4 mr-3 text-primary" />
-                  <span>Restart Tutorial</span>
+                  <span>{t("header.restartTutorial")}</span>
                 </DropdownMenuItem>
               </div>
               
@@ -357,7 +357,7 @@ export const Header = () => {
               {/* Accessibility */}
               <div className="p-2">
                 <DropdownMenuLabel className="text-xs text-muted-foreground px-2 pb-1">
-                  Accessibility
+                  {t("accessibility.textSize")}
                 </DropdownMenuLabel>
                 <div className="flex gap-1 px-2 pb-2">
                   <Button
@@ -367,7 +367,7 @@ export const Header = () => {
                     className="flex-1 h-8"
                   >
                     <Type className="w-3.5 h-3.5 mr-1.5" />
-                    Normal
+                    {t("accessibility.normal")}
                   </Button>
                   <Button
                     variant={textSize === "large" ? "default" : "outline"}
@@ -376,7 +376,7 @@ export const Header = () => {
                     className="flex-1 h-8"
                   >
                     <Type className="w-4 h-4 mr-1.5" />
-                    Large
+                    {t("accessibility.large")}
                   </Button>
                 </div>
               </div>
@@ -465,7 +465,7 @@ export const Header = () => {
           
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Connect Fitness Trackers</DialogTitle>
+              <DialogTitle>{t("header.connectFitnessTrackers")}</DialogTitle>
             </DialogHeader>
             <FitnessTrackerConnection />
           </DialogContent>

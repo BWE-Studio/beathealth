@@ -101,7 +101,7 @@ const products = [
 
 const Shop = () => {
   const navigate = useNavigate();
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
 
   return (
     <div className="min-h-screen pb-24 md:pb-6">
@@ -110,12 +110,10 @@ const Shop = () => {
       <main className="container mx-auto px-4 py-6 max-w-5xl">
         <div className="mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
           <h1 className="text-3xl md:text-4xl font-serif font-bold mb-2 text-gradient-primary">
-            {language === "hi" ? "बीट शॉप" : "Beat Shop"}
+            {t("shop.beatShop")}
           </h1>
           <p className="text-muted-foreground">
-            {language === "hi" 
-              ? "बीट द्वारा अनुशंसित स्वास्थ्य उत्पाद" 
-              : "Health products recommended by Beat"}
+            {t("shop.beatRecommended")}
           </p>
         </div>
 
@@ -133,7 +131,13 @@ const Shop = () => {
                   </div>
                   {product.badge && (
                     <Badge variant="secondary" className="text-xs">
-                      {product.badge}
+                      {product.badge === "Best Seller"
+                        ? t("shop.badge.bestSeller")
+                        : product.badge === "Popular"
+                        ? t("shop.badge.popular")
+                        : product.badge === "Heart Health"
+                        ? t("shop.badge.heartHealth")
+                        : t("shop.badge.topRated")}
                     </Badge>
                   )}
                 </div>
@@ -151,7 +155,7 @@ const Shop = () => {
                     <span className="text-sm font-medium">{product.rating}</span>
                   </div>
                   <span className="text-xs text-muted-foreground">
-                    ({product.reviews.toLocaleString()} reviews)
+                    ({product.reviews.toLocaleString()} {t("common.reviews")})
                   </span>
                 </div>
 
@@ -167,7 +171,7 @@ const Shop = () => {
                     className="gap-2"
                     onClick={() => window.open(product.link, "_blank")}
                   >
-                    {language === "hi" ? "खरीदें" : "Buy"}
+                    {t("shop.buy")}
                     <ExternalLink className="w-4 h-4" />
                   </Button>
                 </div>
@@ -178,12 +182,10 @@ const Shop = () => {
 
         <div className="mt-8 p-6 bg-muted/50 rounded-2xl text-center">
           <p className="text-sm text-muted-foreground">
-            {language === "hi" 
-              ? "बीट प्रीमियम सदस्यों को विशेष छूट मिलती है। आज ही अपग्रेड करें!" 
-              : "Beat Premium members get exclusive discounts. Upgrade today!"}
+            {t("shop.membersDiscount")}
           </p>
           <Button variant="link" className="mt-2" onClick={() => navigate("/app/subscription")}>
-            {language === "hi" ? "प्रीमियम देखें →" : "View Premium →"}
+            {t("shop.viewPremium")}
           </Button>
         </div>
       </main>
