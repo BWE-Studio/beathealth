@@ -6,6 +6,32 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const getFirstKeyFromJson = (value: string | undefined) => {
+  if (!value) return null;
+
+  try {
+    const parsed = JSON.parse(value);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const firstKey = Object.values(parsed).find((key) => typeof key === "string");
+      return typeof firstKey === "string" ? firstKey : null;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+};
+
+const getSupabasePublishableKey = () =>
+  Deno.env.get("SUPABASE_ANON_KEY") ??
+  Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ??
+  getFirstKeyFromJson(Deno.env.get("SUPABASE_PUBLISHABLE_KEYS"));
+
+const getSupabaseSecretKey = () =>
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
+  Deno.env.get("SUPABASE_SECRET_KEY") ??
+  getFirstKeyFromJson(Deno.env.get("SUPABASE_SECRET_KEYS"));
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -23,11 +49,29 @@ serve(async (req) => {
       );
     }
 
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabasePublishableKey = getSupabasePublishableKey();
+
+    if (!supabaseUrl || !supabasePublishableKey) {
+      console.error("Missing Supabase auth configuration", {
+        hasUrl: Boolean(supabaseUrl),
+        hasPublishableKey: Boolean(supabasePublishableKey),
+      });
+      return new Response(
+        JSON.stringify({ error: "Server configuration error" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Create client with user's auth context to verify their identity
     const supabaseAuth = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+      supabaseUrl,
+      supabasePublishableKey,
       {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
         global: {
           headers: { Authorization: authHeader },
         },
@@ -58,10 +102,17 @@ serve(async (req) => {
     console.log(`Creating checkout for user ${user.id}, plan: ${planType}`);
 
     // Use service role client for database operations
-    const supabaseClient = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-    );
+    const supabaseSecretKey = getSupabaseSecretKey();
+
+    if (!supabaseSecretKey) {
+      console.error("Missing Supabase service/secret key configuration");
+      return new Response(
+        JSON.stringify({ error: "Server configuration error" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const supabaseClient = createClient(supabaseUrl, supabaseSecretKey);
 
     // Get Razorpay credentials from secrets
     const razorpayKeyId = Deno.env.get("RAZORPAY_KEY_ID");

@@ -53,6 +53,47 @@ const planDetails = {
   }
 };
 
+const parsePaymentError = (err: unknown) => {
+  const rawMessage =
+    err instanceof Error
+      ? err.message
+      : typeof err === "string"
+        ? err
+        : typeof err === "object" && err !== null && "message" in err
+          ? String((err as { message?: unknown }).message ?? "")
+          : "";
+
+  let code = "";
+  let description = rawMessage.trim();
+
+  try {
+    const parsed = JSON.parse(rawMessage);
+    code = typeof parsed.code === "string" ? parsed.code : "";
+    description = typeof parsed.description === "string" ? parsed.description : rawMessage;
+  } catch {
+    // Native Razorpay errors may be plain strings.
+  }
+
+  const normalized = `${code} ${description}`.toLowerCase();
+  const hasUsefulMessage = Boolean(description) && !["undefined", "null", "{}"].includes(normalized.trim());
+  const cancelled =
+    !hasUsefulMessage ||
+    normalized.includes("cancel") ||
+    normalized.includes("dismiss") ||
+    normalized.includes("back pressed") ||
+    normalized.includes("payment cancelled") ||
+    normalized.includes("user cancelled");
+
+  return {
+    cancelled,
+    message: cancelled
+      ? "Payment cancelled"
+      : hasUsefulMessage
+        ? description
+        : "Payment could not be completed. Please try again.",
+  };
+};
+
 export const RazorpayCheckout = ({ open, onClose, planType, onSuccess }: RazorpayCheckoutProps) => {
   const [loading, setLoading] = useState(false);
   const [scriptLoaded, setScriptLoaded] = useState(false);
@@ -60,6 +101,12 @@ export const RazorpayCheckout = ({ open, onClose, planType, onSuccess }: Razorpa
 
   const plan = planDetails[planType];
   const isAndroidNative = Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
+
+  const resetAndClose = () => {
+    setLoading(false);
+    setError(null);
+    onClose();
+  };
 
   // Load Razorpay script
   useEffect(() => {
@@ -161,30 +208,39 @@ export const RazorpayCheckout = ({ open, onClose, planType, onSuccess }: Razorpa
       };
 
       if (isAndroidNative) {
-        Checkout.open(options as any)
-          .then((result: any) => verifyPayment(result?.response ?? result))
-          .catch((err: any) => {
-            console.error("Payment error:", err);
-            setError(err instanceof Error ? err.message : "Payment failed");
-            toast.error("Failed to initiate payment");
-          });
+        try {
+          const result = await Checkout.open(options as any);
+          await verifyPayment(result?.response ?? result);
+        } catch (err) {
+          const paymentError = parsePaymentError(err);
+          console.error("Payment error:", err);
+
+          if (paymentError.cancelled) {
+            resetAndClose();
+            return;
+          }
+
+          setError(paymentError.message);
+          toast.error(paymentError.message);
+        }
         return;
       }
 
       const razorpay = new window.Razorpay(options);
       razorpay.open();
     } catch (err) {
+      const paymentError = parsePaymentError(err);
       console.error("Payment error:", err);
-      setError(err instanceof Error ? err.message : "Payment failed");
-      toast.error("Failed to initiate payment");
+      setError(paymentError.message);
+      toast.error(paymentError.message);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
+    <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && resetAndClose()}>
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto">
         <DialogHeader className="text-center pb-2">
           <div className="flex justify-center mb-3">
             <div className="w-20 h-20 rounded-2xl bg-black flex items-center justify-center shadow-lg">
@@ -234,9 +290,9 @@ export const RazorpayCheckout = ({ open, onClose, planType, onSuccess }: Razorpa
           )}
 
           {error && (
-            <div className="flex items-center gap-2 p-3 mb-4 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive">
-              <AlertCircle className="w-4 h-4" />
-              {error}
+            <div className="flex items-start gap-2 p-3 mb-4 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span className="min-w-0 break-words">{error}</span>
             </div>
           )}
 
