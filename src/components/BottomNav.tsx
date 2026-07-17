@@ -5,12 +5,13 @@ import { haptic } from "@/lib/haptics";
 import beatLogo from "@/assets/beat-logo.png";
 import { useState } from "react";
 import { HealthSummarySheet } from "@/components/HealthSummarySheet";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 // Simplified 3-item navigation for senior-friendly UX
 const navItems = [
-  { icon: Heart, label: "Health", action: "health_sheet" },
-  { icon: null, label: "Beat", path: "/app/coach", highlight: true, useLogo: true },
-  { icon: User, label: "Me", path: "/app/profile" },
+  { icon: Heart, labelKey: "nav.health", action: "health_sheet" },
+  { icon: null, labelKey: "nav.beat", path: "/app/coach", highlight: true, useLogo: true },
+  { icon: User, labelKey: "nav.me", path: "/app/profile" },
 ];
 
 export const BottomNav = () => {
@@ -18,6 +19,7 @@ export const BottomNav = () => {
   const pathname = location.pathname;
   const navigate = useNavigate();
   const [healthSheetOpen, setHealthSheetOpen] = useState(false);
+  const { t } = useLanguage();
 
   const handleNavClick = (item: typeof navItems[0]) => {
     haptic('light');
@@ -81,7 +83,7 @@ export const BottomNav = () => {
                   isActive && "font-semibold text-primary",
                   item.highlight && "mt-1"
                 )}>
-                  {item.label}
+                  {t(item.labelKey)}
                 </span>
                 {isActive && !item.highlight && (
                   <div className="absolute bottom-2 w-1.5 h-1.5 rounded-full bg-primary" />

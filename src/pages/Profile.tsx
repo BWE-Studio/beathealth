@@ -10,6 +10,9 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Header } from "@/components/Header";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { Capacitor } from "@capacitor/core";
+import { Directory, Encoding, Filesystem } from "@capacitor/filesystem";
+import { Share } from "@capacitor/share";
 import { 
   User, 
   Bell, 
@@ -20,9 +23,11 @@ import {
   Save,
   ArrowLeft,
   Crown,
-  Bot
+  Bot,
+  Loader2
 } from "lucide-react";
 import { useSubscription } from "@/hooks/useSubscription";
+import { RazorpayCheckout } from "@/components/RazorpayCheckout";
 import { AgentPreferences } from "@/components/AgentPreferences";
 import { AgentMemoryView } from "@/components/AgentMemoryView";
 import { PushNotificationToggle } from "@/components/PushNotificationToggle";
@@ -33,6 +38,7 @@ import { AppointmentManager } from "@/components/AppointmentManager";
 import { ReferralProgram } from "@/components/ReferralProgram";
 import { WhatsAppSetup } from "@/components/WhatsAppSetup";
 import { useAuth } from "@/hooks/useAuth";
+import { useLanguage } from "@/contexts/LanguageContext";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -48,7 +54,8 @@ import {
 const Profile = () => {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
-  const { subscription, isPremium, createCheckout, isCreatingCheckout } = useSubscription();
+  const { t } = useLanguage();
+  const { subscription, isPremium, checkoutPlan, openCheckout, closeCheckout, onCheckoutSuccess } = useSubscription();
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [profile, setProfile] = useState<any>(null);
@@ -56,6 +63,8 @@ const Profile = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [isExportingData, setIsExportingData] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   
   const [formData, setFormData] = useState({
     full_name: "",
@@ -129,7 +138,7 @@ const Profile = () => {
       }
     } catch (error) {
       console.error("Error fetching profile:", error);
-      toast.error("Failed to load profile");
+      toast.error(t("profile.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -141,7 +150,7 @@ const Profile = () => {
       if (!file) return;
 
       if (file.size > 2 * 1024 * 1024) {
-        toast.error("File size must be less than 2MB");
+        toast.error(t("profile.fileTooLarge"));
         return;
       }
 
@@ -168,11 +177,11 @@ const Profile = () => {
         .update({ avatar_url: publicUrl })
         .eq('id', user.id);
 
-      toast.success("Profile photo updated");
+      toast.success(t("profile.photoUpdated"));
       fetchData(user.id);
     } catch (error) {
       console.error("Error uploading avatar:", error);
-      toast.error("Failed to upload photo");
+      toast.error(t("profile.photoUploadFailed"));
     } finally {
       setIsUploadingAvatar(false);
     }
@@ -210,20 +219,28 @@ const Profile = () => {
       if (profileUpdate.error) throw profileUpdate.error;
       if (notificationUpdate.error) throw notificationUpdate.error;
 
-      toast.success("Profile saved successfully");
+      toast.success(t("profile.saved"));
       fetchData(user.id);
     } catch (error) {
       console.error("Error saving profile:", error);
-      toast.error("Failed to save profile");
+      toast.error(t("profile.saveFailed"));
     } finally {
       setSaving(false);
     }
   };
 
   const handleExportData = async () => {
+    if (isExportingData) return;
+
+    setIsExportingData(true);
+    setExportError(null);
+    toast.loading(t("profile.exportPreparing"), { id: "profile-data-export" });
+
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user) {
+        throw new Error(t("profile.exportSignInRequired"));
+      }
 
       const [profileData, bpLogs, sugarLogs, behaviorLogs, medications] = await Promise.all([
         supabase.from("profiles").select("*").eq("id", user.id).single(),
@@ -242,18 +259,61 @@ const Profile = () => {
         medications: medications.data,
       };
 
-      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `beat-health-data-${new Date().toISOString().split("T")[0]}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const fileName = `beat-health-data-${new Date().toISOString().split("T")[0]}.json`;
+      const json = JSON.stringify(exportData, null, 2);
 
-      toast.success("Data exported successfully");
+      if (Capacitor.isNativePlatform()) {
+        await Filesystem.writeFile({
+          path: fileName,
+          data: json,
+          directory: Directory.Cache,
+          encoding: Encoding.UTF8,
+        });
+
+        const { uri } = await Filesystem.getUri({
+          path: fileName,
+          directory: Directory.Cache,
+        });
+
+        toast.loading(t("profile.exportOpeningShare"), { id: "profile-data-export" });
+
+        await Share.share({
+          title: t("profile.exportShareTitle"),
+          text: t("profile.exportShareText"),
+          files: [uri],
+          dialogTitle: t("profile.exportShareDialog"),
+        });
+
+        toast.success(t("profile.exportNativeSuccess"), {
+          id: "profile-data-export",
+        });
+      } else {
+        const blob = new Blob([json], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = fileName;
+        a.click();
+        URL.revokeObjectURL(url);
+
+        toast.success(t("profile.exportBrowserSuccess"), {
+          id: "profile-data-export",
+        });
+      }
     } catch (error) {
       console.error("Error exporting data:", error);
-      toast.error("Failed to export data");
+      const errorMessage = error instanceof Error ? error.message : String(error || "");
+      if (/cancel/i.test(errorMessage) || /abort/i.test(errorMessage)) {
+        toast.info(t("profile.exportDismissed"), {
+          id: "profile-data-export",
+        });
+        return;
+      }
+      const message = error instanceof Error ? error.message : t("profile.exportFailedTryAgain");
+      setExportError(message);
+      toast.error(message, { id: "profile-data-export" });
+    } finally {
+      setIsExportingData(false);
     }
   };
 
@@ -264,7 +324,7 @@ const Profile = () => {
       } = await supabase.auth.getSession();
 
       if (!session) {
-        toast.error("No active session found");
+        toast.error(t("profile.noActiveSession"));
         return;
       }
 
@@ -281,11 +341,11 @@ const Profile = () => {
 
       await supabase.auth.signOut();
 
-      toast.success("Account deleted successfully");
+      toast.success(t("profile.accountDeleted"));
       navigate("/");
     } catch (error) {
       console.error("Delete account error:", error);
-      toast.error("Failed to delete account");
+      toast.error(t("profile.deleteFailed"));
     }
   };
 
@@ -351,11 +411,11 @@ const Profile = () => {
               />
             </div>
             <div className="flex-1">
-              <h1 className="text-2xl font-bold">{profile?.full_name || "User"}</h1>
+              <h1 className="text-2xl font-bold">{profile?.full_name || t("common.user")}</h1>
               <p className="text-muted-foreground">{profile?.email}</p>
               {isPremium && (
                 <span className="inline-flex items-center gap-1 text-xs bg-gradient-to-r from-amber-500 to-orange-500 text-white px-2 py-0.5 rounded-full mt-1">
-                  <Crown className="w-3 h-3" /> Premium
+                  <Crown className="w-3 h-3" /> {t("common.premium")}
                 </span>
               )}
             </div>
@@ -366,22 +426,22 @@ const Profile = () => {
         <Card className="p-6 mb-6">
           <div className="flex items-center gap-2 mb-4">
             <User className="w-5 h-5 text-primary" />
-            <h2 className="text-lg font-semibold">Personal Information</h2>
+            <h2 className="text-lg font-semibold">{t("profile.personalInfo")}</h2>
           </div>
           
           <div className="grid gap-4">
             <div className="grid md:grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="full_name">Full Name</Label>
+                <Label htmlFor="full_name">{t("profile.fullName")}</Label>
                 <Input
                   id="full_name"
                   value={formData.full_name}
                   onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-                  placeholder="Enter your name"
+                  placeholder={t("profile.namePlaceholder")}
                 />
               </div>
               <div>
-                <Label htmlFor="phone">Phone Number</Label>
+                <Label htmlFor="phone">{t("profile.phoneNumber")}</Label>
                 <Input
                   id="phone"
                   value={formData.phone}
@@ -393,7 +453,7 @@ const Profile = () => {
 
             <div className="grid md:grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="weight_kg">Weight (kg)</Label>
+                <Label htmlFor="weight_kg">{t("profile.weight")}</Label>
                 <Input
                   id="weight_kg"
                   type="number"
@@ -403,7 +463,7 @@ const Profile = () => {
                 />
               </div>
               <div>
-                <Label htmlFor="height_cm">Height (cm)</Label>
+                <Label htmlFor="height_cm">{t("profile.height")}</Label>
                 <Input
                   id="height_cm"
                   type="number"
@@ -413,7 +473,7 @@ const Profile = () => {
                 />
               </div>
               <div>
-                <Label htmlFor="date_of_birth">Date of Birth</Label>
+                <Label htmlFor="date_of_birth">{t("profile.dateOfBirth")}</Label>
                 <Input
                   id="date_of_birth"
                   type="date"
@@ -422,18 +482,18 @@ const Profile = () => {
                 />
               </div>
               <div>
-                <Label htmlFor="gender">Gender</Label>
+                <Label htmlFor="gender">{t("profile.gender")}</Label>
                 <select
                   id="gender"
                   value={formData.gender}
                   onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
                   className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
                 >
-                  <option value="">Prefer not to say</option>
-                  <option value="female">Female</option>
-                  <option value="male">Male</option>
-                  <option value="non_binary">Non-binary</option>
-                  <option value="other">Other</option>
+                  <option value="">{t("profile.preferNotToSay")}</option>
+                  <option value="female">{t("profile.female")}</option>
+                  <option value="male">{t("profile.male")}</option>
+                  <option value="non_binary">{t("profile.nonBinary")}</option>
+                  <option value="other">{t("profile.other")}</option>
                 </select>
               </div>
             </div>
@@ -441,28 +501,28 @@ const Profile = () => {
             <Separator />
 
             <div className="space-y-3">
-              <Label>Health Conditions</Label>
+              <Label>{t("profile.healthConditions")}</Label>
               <div className="flex flex-wrap gap-4">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <Switch
                     checked={formData.has_diabetes}
                     onCheckedChange={(checked) => setFormData({ ...formData, has_diabetes: checked })}
                   />
-                  <span className="text-sm">Diabetes</span>
+                  <span className="text-sm">{t("profile.diabetes")}</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <Switch
                     checked={formData.has_hypertension}
                     onCheckedChange={(checked) => setFormData({ ...formData, has_hypertension: checked })}
                   />
-                  <span className="text-sm">Hypertension</span>
+                  <span className="text-sm">{t("profile.hypertension")}</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <Switch
                     checked={formData.has_heart_disease}
                     onCheckedChange={(checked) => setFormData({ ...formData, has_heart_disease: checked })}
                   />
-                  <span className="text-sm">Heart Disease</span>
+                  <span className="text-sm">{t("profile.heartDisease")}</span>
                 </label>
               </div>
             </div>
@@ -471,24 +531,24 @@ const Profile = () => {
 
             {/* Advanced Health Metrics */}
             <div className="space-y-4">
-              <Label>Advanced Health Metrics (Optional)</Label>
+              <Label>{t("profile.advancedMetrics")}</Label>
               <div className="grid md:grid-cols-3 gap-4">
                 <div>
-                  <Label htmlFor="smoking_status" className="text-xs text-muted-foreground">Smoking Status</Label>
+                  <Label htmlFor="smoking_status" className="text-xs text-muted-foreground">{t("profile.smokingStatus")}</Label>
                   <select
                     id="smoking_status"
                     value={formData.smoking_status}
                     onChange={(e) => setFormData({ ...formData, smoking_status: e.target.value })}
                     className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
                   >
-                    <option value="unknown">Unknown</option>
-                    <option value="never">Never Smoked</option>
-                    <option value="former">Former Smoker</option>
-                    <option value="current">Current Smoker</option>
+                    <option value="unknown">{t("profile.unknown")}</option>
+                    <option value="never">{t("profile.neverSmoked")}</option>
+                    <option value="former">{t("profile.formerSmoker")}</option>
+                    <option value="current">{t("profile.currentSmoker")}</option>
                   </select>
                 </div>
                 <div>
-                  <Label htmlFor="cholesterol_ratio" className="text-xs text-muted-foreground">Cholesterol Ratio</Label>
+                  <Label htmlFor="cholesterol_ratio" className="text-xs text-muted-foreground">{t("profile.cholesterolRatio")}</Label>
                   <Input
                     id="cholesterol_ratio"
                     type="number"
@@ -499,7 +559,7 @@ const Profile = () => {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="last_hba1c" className="text-xs text-muted-foreground">Last HbA1c (%)</Label>
+                  <Label htmlFor="last_hba1c" className="text-xs text-muted-foreground">{t("profile.lastHba1c")}</Label>
                   <Input
                     id="last_hba1c"
                     type="number"
@@ -511,7 +571,7 @@ const Profile = () => {
                 </div>
               </div>
               <p className="text-xs text-muted-foreground">
-                These metrics improve AI risk predictions. Ask your doctor for these values.
+                {t("profile.advancedMetricsHelp")}
               </p>
             </div>
           </div>
@@ -536,14 +596,14 @@ const Profile = () => {
         <Card className="p-6 mb-6">
           <div className="flex items-center gap-2 mb-4">
             <Bell className="w-5 h-5 text-primary" />
-            <h2 className="text-lg font-semibold">Notification Preferences</h2>
+            <h2 className="text-lg font-semibold">{t("profile.notificationPreferences")}</h2>
           </div>
           
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium">WhatsApp Messages</p>
-                <p className="text-sm text-muted-foreground">Daily reminders via WhatsApp</p>
+                <p className="font-medium">{t("profile.whatsappMessages")}</p>
+                <p className="text-sm text-muted-foreground">{t("profile.whatsappMessagesDesc")}</p>
               </div>
               <Switch
                 checked={notificationSettings.whatsapp_enabled}
@@ -552,8 +612,8 @@ const Profile = () => {
             </div>
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium">Daily Reminders</p>
-                <p className="text-sm text-muted-foreground">Morning and evening check-in reminders</p>
+                <p className="font-medium">{t("profile.dailyReminders")}</p>
+                <p className="text-sm text-muted-foreground">{t("profile.dailyRemindersDesc")}</p>
               </div>
               <Switch
                 checked={notificationSettings.daily_reminder_enabled}
@@ -562,8 +622,8 @@ const Profile = () => {
             </div>
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium">Weekly Summary</p>
-                <p className="text-sm text-muted-foreground">Weekly health insights report</p>
+                <p className="font-medium">{t("profile.weeklySummary")}</p>
+                <p className="text-sm text-muted-foreground">{t("profile.weeklySummaryDesc")}</p>
               </div>
               <Switch
                 checked={notificationSettings.weekly_summary_enabled}
@@ -599,17 +659,16 @@ const Profile = () => {
           <Card className="p-6 mb-6 bg-gradient-to-br from-primary/5 to-accent/5 border-primary/20">
             <div className="flex items-center gap-2 mb-4">
               <Crown className="w-5 h-5 text-primary" />
-              <h2 className="text-lg font-semibold">Upgrade to Premium</h2>
+              <h2 className="text-lg font-semibold">{t("profile.upgradeToPremium")}</h2>
             </div>
             <p className="text-muted-foreground mb-4">
-              Unlock Beat AI Coach, PDF reports, advanced insights, and priority support.
+              {t("profile.premiumDescription")}
             </p>
             <Button
-              onClick={() => createCheckout("premium")}
-              disabled={isCreatingCheckout}
+              onClick={() => openCheckout("premium")}
               className="w-full md:w-auto"
             >
-              {isCreatingCheckout ? "Loading..." : "Upgrade to Premium - ₹199/month"}
+              {t("profile.upgradePremiumPrice")}
             </Button>
           </Card>
         )}
@@ -618,38 +677,80 @@ const Profile = () => {
         <Card className="p-6 mb-6">
           <div className="flex items-center gap-2 mb-4">
             <Shield className="w-5 h-5 text-primary" />
-            <h2 className="text-lg font-semibold">Data & Privacy</h2>
+            <h2 className="text-lg font-semibold">{t("profile.dataPrivacy")}</h2>
           </div>
           
           <div className="space-y-4">
-            <Button
-              variant="outline"
-              onClick={handleExportData}
-              className="w-full justify-start"
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Export My Data
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="w-full justify-start"
+                  disabled={isExportingData}
+                >
+                  {isExportingData ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4 mr-2" />
+                  )}
+                  {isExportingData ? t("profile.exportingData") : t("profile.exportData")}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>{t("profile.exportDialogTitle")}</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {t("profile.exportDialogDescription")}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={isExportingData}>{t("common.cancel")}</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleExportData} disabled={isExportingData}>
+                    {isExportingData ? t("profile.exporting") : t("profile.startExport")}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+            {exportError && (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm">
+                <p className="font-medium text-destructive">{t("profile.exportFailed")}</p>
+                <p className="mt-1 text-muted-foreground">{exportError}</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExportData}
+                  disabled={isExportingData}
+                  className="mt-3"
+                >
+                  {isExportingData ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4 mr-2" />
+                  )}
+                  {t("profile.retryExport")}
+                </Button>
+              </div>
+            )}
 
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="destructive" className="w-full justify-start">
                   <Trash2 className="w-4 h-4 mr-2" />
-                  Delete My Account
+                  {t("profile.deleteAccount")}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                  <AlertDialogTitle>{t("profile.deleteConfirmTitle")}</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This action cannot be undone. This will permanently delete your
-                    account and remove all your health data from our servers.
+                    {t("profile.deleteConfirmDescription")}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
                   <AlertDialogAction onClick={handleDeleteAccount} className="bg-destructive text-destructive-foreground">
-                    Delete Account
+                    {t("profile.deleteAccountAction")}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -664,9 +765,18 @@ const Profile = () => {
           className="w-full h-12 text-lg"
         >
           <Save className="w-5 h-5 mr-2" />
-          {saving ? "Saving..." : "Save Changes"}
+          {saving ? t("common.saving") : t("profile.saveChanges")}
         </Button>
       </div>
+
+      {checkoutPlan && (
+        <RazorpayCheckout
+          open={!!checkoutPlan}
+          onClose={closeCheckout}
+          planType={checkoutPlan}
+          onSuccess={onCheckoutSuccess}
+        />
+      )}
     </div>
   );
 };

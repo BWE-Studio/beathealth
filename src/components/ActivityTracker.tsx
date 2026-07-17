@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { haptic } from "@/lib/haptics";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface ActivitySession {
   id?: string;
@@ -24,16 +25,17 @@ interface ActivitySession {
 }
 
 const ACTIVITY_TYPES = [
-  { id: 'walking', label: 'Walking', icon: Footprints, met: 3.5, color: 'text-green-500' },
-  { id: 'running', label: 'Running', icon: Zap, met: 8.0, color: 'text-orange-500' },
-  { id: 'cycling', label: 'Cycling', icon: Activity, met: 6.0, color: 'text-blue-500' },
-  { id: 'yoga', label: 'Yoga', icon: Heart, met: 2.5, color: 'text-violet-500' },
+  { id: 'walking', labelKey: 'activity.walking', icon: Footprints, met: 3.5, color: 'text-green-500' },
+  { id: 'running', labelKey: 'activity.running', icon: Zap, met: 8.0, color: 'text-orange-500' },
+  { id: 'cycling', labelKey: 'activity.cycling', icon: Activity, met: 6.0, color: 'text-blue-500' },
+  { id: 'yoga', labelKey: 'activity.yoga', icon: Heart, met: 2.5, color: 'text-violet-500' },
 ];
 
 const STEP_GOAL = 10000;
 
 export const ActivityTracker = () => {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const [session, setSession] = useState<ActivitySession | null>(null);
   const [todaySteps, setTodaySteps] = useState(0);
   const [todayCalories, setTodayCalories] = useState(0);
@@ -159,7 +161,8 @@ export const ActivityTracker = () => {
       isActive: true,
     });
 
-    toast.success(`${activityType.charAt(0).toUpperCase() + activityType.slice(1)} session started!`);
+      const activity = ACTIVITY_TYPES.find((item) => item.id === activityType);
+      toast.success(t("activity.started").replace("{activity}", activity ? t(activity.labelKey) : activityType));
   };
 
   const pauseSession = () => {
@@ -192,7 +195,7 @@ export const ActivityTracker = () => {
 
       if (error) throw error;
 
-      toast.success('Activity saved!');
+      toast.success(t("activity.saved"));
       setTodaySteps(prev => prev + session.steps);
       setTodayCalories(prev => prev + session.calories);
       setTodayMinutes(prev => prev + Math.round(session.duration / 60));
@@ -200,7 +203,7 @@ export const ActivityTracker = () => {
 
     } catch (error: any) {
       console.error('Save error:', error);
-      toast.error('Failed to save activity');
+      toast.error(t("activity.saveFailed"));
     }
   };
 
@@ -219,24 +222,24 @@ export const ActivityTracker = () => {
         <div className="w-16 h-16 mx-auto mb-3 bg-gradient-to-br from-green-500/20 to-emerald-500/20 rounded-2xl flex items-center justify-center">
           <Footprints className="w-8 h-8 text-green-500" />
         </div>
-        <h3 className="text-lg font-semibold">Activity Tracker</h3>
+        <h3 className="text-lg font-semibold">{t("activity.title")}</h3>
         <p className="text-sm text-muted-foreground">
-          Track your movement and earn health points
+          {t("activity.subtitle")}
         </p>
       </div>
 
       {/* Today's Stats */}
       <Card className="p-4">
         <div className="flex items-center justify-between mb-3">
-          <h4 className="font-medium">Today's Progress</h4>
-          <Badge variant="outline">{Math.round(stepProgress)}% of goal</Badge>
+          <h4 className="font-medium">{t("activity.todayProgress")}</h4>
+          <Badge variant="outline">{t("activity.goalProgress").replace("{percent}", String(Math.round(stepProgress)))}</Badge>
         </div>
 
         <div className="space-y-3">
           {/* Step Progress */}
           <div className="space-y-1">
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Steps</span>
+              <span className="text-muted-foreground">{t("activity.steps")}</span>
               <span className="font-medium">{todaySteps.toLocaleString()} / {STEP_GOAL.toLocaleString()}</span>
             </div>
             <Progress value={stepProgress} className="h-3" />
@@ -247,17 +250,17 @@ export const ActivityTracker = () => {
             <div className="text-center p-3 rounded-lg bg-muted/50">
               <Footprints className="w-5 h-5 mx-auto mb-1 text-green-500" />
               <p className="text-lg font-bold">{todaySteps.toLocaleString()}</p>
-              <p className="text-xs text-muted-foreground">Steps</p>
+              <p className="text-xs text-muted-foreground">{t("activity.steps")}</p>
             </div>
             <div className="text-center p-3 rounded-lg bg-muted/50">
               <Flame className="w-5 h-5 mx-auto mb-1 text-orange-500" />
               <p className="text-lg font-bold">{todayCalories}</p>
-              <p className="text-xs text-muted-foreground">Calories</p>
+              <p className="text-xs text-muted-foreground">{t("activity.calories")}</p>
             </div>
             <div className="text-center p-3 rounded-lg bg-muted/50">
               <Clock className="w-5 h-5 mx-auto mb-1 text-blue-500" />
               <p className="text-lg font-bold">{todayMinutes}</p>
-              <p className="text-xs text-muted-foreground">Minutes</p>
+              <p className="text-xs text-muted-foreground">{t("activity.minutes")}</p>
             </div>
           </div>
         </div>
@@ -271,10 +274,12 @@ export const ActivityTracker = () => {
               {session.isActive && (
                 <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
               )}
-              <h4 className="font-semibold capitalize">{session.activityType}</h4>
+              <h4 className="font-semibold capitalize">
+                {t(ACTIVITY_TYPES.find((item) => item.id === session.activityType)?.labelKey || "activity.walking")}
+              </h4>
             </div>
             <Badge variant={session.isActive ? "default" : "secondary"}>
-              {session.isActive ? 'Active' : 'Paused'}
+              {session.isActive ? t("activity.active") : t("activity.paused")}
             </Badge>
           </div>
 
@@ -289,11 +294,11 @@ export const ActivityTracker = () => {
           <div className="grid grid-cols-2 gap-4 mb-4">
             <div className="text-center p-3 rounded-lg bg-background/50">
               <p className="text-2xl font-bold">{session.steps}</p>
-              <p className="text-xs text-muted-foreground">Steps</p>
+              <p className="text-xs text-muted-foreground">{t("activity.steps")}</p>
             </div>
             <div className="text-center p-3 rounded-lg bg-background/50">
               <p className="text-2xl font-bold">{session.calories}</p>
-              <p className="text-xs text-muted-foreground">Calories</p>
+              <p className="text-xs text-muted-foreground">{t("activity.calories")}</p>
             </div>
           </div>
 
@@ -302,16 +307,16 @@ export const ActivityTracker = () => {
             {session.isActive ? (
               <Button variant="outline" className="flex-1" onClick={pauseSession}>
                 <Pause className="w-4 h-4 mr-2" />
-                Pause
+                {t("activity.pause")}
               </Button>
             ) : (
               <Button variant="outline" className="flex-1" onClick={resumeSession}>
                 <Play className="w-4 h-4 mr-2" />
-                Resume
+                {t("activity.resume")}
               </Button>
             )}
             <Button className="flex-1" onClick={endSession}>
-              End & Save
+              {t("activity.endSave")}
             </Button>
           </div>
         </Card>
@@ -320,7 +325,7 @@ export const ActivityTracker = () => {
       {/* Activity Selection */}
       {!session && (
         <div className="space-y-3">
-          <h4 className="font-medium">Start an Activity</h4>
+          <h4 className="font-medium">{t("activity.startActivity")}</h4>
           <div className="grid grid-cols-2 gap-3">
             {ACTIVITY_TYPES.map((activity) => (
               <Button
@@ -330,7 +335,7 @@ export const ActivityTracker = () => {
                 onClick={() => startSession(activity.id)}
               >
                 <activity.icon className={`w-8 h-8 ${activity.color}`} />
-                <span className="font-medium">{activity.label}</span>
+                <span className="font-medium">{t(activity.labelKey)}</span>
                 <span className="text-xs text-muted-foreground">{activity.met} MET</span>
               </Button>
             ))}
@@ -342,18 +347,18 @@ export const ActivityTracker = () => {
       {!accelerometerSupported && (
         <Card className="p-3 bg-muted/50">
           <p className="text-xs text-muted-foreground text-center">
-            📱 Step counting works best on mobile devices with motion sensors
+            {t("activity.motionNote")}
           </p>
         </Card>
       )}
 
       {/* Tips */}
       <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
-        <h5 className="font-medium text-sm mb-2">💡 Activity Tips</h5>
+        <h5 className="font-medium text-sm mb-2">{t("activity.tipsTitle")}</h5>
         <ul className="text-xs text-muted-foreground space-y-1">
-          <li>• 10,000 steps ≈ 5 miles ≈ 400-500 calories</li>
-          <li>• Walking 30 min daily can lower BP by 4-9 mmHg</li>
-          <li>• Post-meal walks help reduce blood sugar spikes</li>
+          <li>{t("activity.tipSteps")}</li>
+          <li>{t("activity.tipBp")}</li>
+          <li>{t("activity.tipSugar")}</li>
         </ul>
       </div>
     </div>

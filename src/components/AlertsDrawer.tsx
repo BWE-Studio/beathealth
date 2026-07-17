@@ -26,6 +26,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface HealthAlert {
   id: string;
@@ -39,65 +40,66 @@ interface HealthAlert {
   created_at: string;
 }
 
-const ALERT_CONFIG: Record<string, { icon: typeof Heart; color: string; bgColor: string; label: string }> = {
+const ALERT_CONFIG: Record<string, { icon: typeof Heart; color: string; bgColor: string; labelKey: string }> = {
   high_bp: { 
     icon: Heart, 
     color: "text-red-600", 
     bgColor: "bg-red-100 dark:bg-red-500/20",
-    label: "High Blood Pressure"
+    labelKey: "alerts.highBp"
   },
   low_bp: { 
     icon: Heart, 
     color: "text-orange-600", 
     bgColor: "bg-orange-100 dark:bg-orange-500/20",
-    label: "Low Blood Pressure"
+    labelKey: "alerts.lowBp"
   },
   high_sugar: { 
     icon: Droplet, 
     color: "text-red-600", 
     bgColor: "bg-red-100 dark:bg-red-500/20",
-    label: "High Blood Sugar"
+    labelKey: "alerts.highSugar"
   },
   low_sugar: { 
     icon: Droplet, 
     color: "text-amber-600", 
     bgColor: "bg-amber-100 dark:bg-amber-500/20",
-    label: "Low Blood Sugar"
+    labelKey: "alerts.lowSugar"
   },
   rapid_change: { 
     icon: TrendingUp, 
     color: "text-purple-600", 
     bgColor: "bg-purple-100 dark:bg-purple-500/20",
-    label: "Rapid Change"
+    labelKey: "alerts.rapidChange"
   },
   missed_ritual: { 
     icon: Clock, 
     color: "text-blue-600", 
     bgColor: "bg-blue-100 dark:bg-blue-500/20",
-    label: "Missed Check-in"
+    labelKey: "alerts.missedCheckin"
   },
   medication_due: { 
     icon: Pill, 
     color: "text-teal-600", 
     bgColor: "bg-teal-100 dark:bg-teal-500/20",
-    label: "Medication Due"
+    labelKey: "alerts.medicationDue"
   },
 };
 
-const getSeverityBadge = (severity: string) => {
+const getSeverityBadge = (severity: string, t: (key: string) => string) => {
   switch (severity) {
     case "high":
-      return <Badge variant="destructive" className="text-xs">Urgent</Badge>;
+      return <Badge variant="destructive" className="text-xs">{t("alerts.urgent")}</Badge>;
     case "medium":
-      return <Badge variant="default" className="text-xs bg-amber-500">Important</Badge>;
+      return <Badge variant="default" className="text-xs bg-amber-500">{t("alerts.important")}</Badge>;
     default:
-      return <Badge variant="secondary" className="text-xs">Info</Badge>;
+      return <Badge variant="secondary" className="text-xs">{t("alerts.info")}</Badge>;
   }
 };
 
 export const AlertsDrawer = () => {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  const { t } = useLanguage();
 
   const { data: alerts = [], isLoading } = useQuery({
     queryKey: ["health-alerts"],
@@ -165,10 +167,10 @@ export const AlertsDrawer = () => {
       if (error) throw error;
 
       queryClient.invalidateQueries({ queryKey: ["health-alerts"] });
-      toast.success("Alert acknowledged");
+      toast.success(t("alerts.acknowledged"));
     } catch (error) {
       console.error("Error resolving alert:", error);
-      toast.error("Failed to acknowledge alert");
+      toast.error(t("alerts.ackFailed"));
     }
   };
 
@@ -177,9 +179,9 @@ export const AlertsDrawer = () => {
     const now = new Date();
     const diffHours = Math.floor((now.getTime() - date.getTime()) / 3600000);
     
-    if (diffHours < 1) return "Just now";
+    if (diffHours < 1) return t("alerts.justNow");
     if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffHours < 48) return "Yesterday";
+    if (diffHours < 48) return t("alerts.yesterday");
     return date.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
   };
 
@@ -200,10 +202,10 @@ export const AlertsDrawer = () => {
         <SheetHeader className="p-4 border-b">
           <SheetTitle className="flex items-center gap-2">
             <Bell className="w-5 h-5 text-primary" />
-            Health Alerts
+            {t("alerts.title")}
             {unresolvedCount > 0 && (
               <Badge variant="destructive" className="ml-2">
-                {unresolvedCount} new
+                {unresolvedCount} {t("alerts.new")}
               </Badge>
             )}
           </SheetTitle>
@@ -224,9 +226,9 @@ export const AlertsDrawer = () => {
               <div className="w-16 h-16 rounded-full bg-secondary/10 flex items-center justify-center mb-4">
                 <Check className="w-8 h-8 text-secondary" />
               </div>
-              <p className="text-lg font-medium">All Clear!</p>
+              <p className="text-lg font-medium">{t("alerts.allClear")}</p>
               <p className="text-sm text-muted-foreground text-center mt-1">
-                No health alerts at the moment. Keep up the good work!
+                {t("alerts.none")}
               </p>
             </div>
           ) : (
@@ -235,7 +237,7 @@ export const AlertsDrawer = () => {
               {alerts.filter(a => !a.resolved).length > 0 && (
                 <>
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-                    New Alerts
+                    {t("alerts.newAlerts")}
                   </p>
                   {alerts.filter(a => !a.resolved).map(alert => {
                     const config = ALERT_CONFIG[alert.alert_type] || {
@@ -263,7 +265,7 @@ export const AlertsDrawer = () => {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
                               <p className="font-medium text-sm">{config.label}</p>
-                              {getSeverityBadge(alert.severity)}
+                              {getSeverityBadge(alert.severity, t)}
                             </div>
                             <p className="text-sm text-muted-foreground">
                               {alert.message}

@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useLanguage } from "@/contexts/LanguageContext";
 import {
   Dialog,
   DialogContent,
@@ -49,13 +50,13 @@ interface DataSource {
 }
 
 const SOURCE_TYPES = [
-  { value: "health_connect", label: "Health Connect (Android)", icon: Smartphone },
-  { value: "apple_health", label: "Apple Health (iOS)", icon: Activity },
-  { value: "wearable_generic", label: "Smartwatch / Band", icon: Watch },
-  { value: "bp_monitor", label: "BP Monitor", icon: Heart },
-  { value: "glucometer", label: "Glucometer", icon: Droplet },
-  { value: "cgm", label: "CGM Device", icon: Activity },
-  { value: "manual", label: "Manual Entry", icon: Plus },
+  { value: "health_connect", labelKey: "devices.healthConnect", icon: Smartphone },
+  { value: "apple_health", labelKey: "devices.appleHealth", icon: Activity },
+  { value: "wearable_generic", labelKey: "devices.smartwatch", icon: Watch },
+  { value: "bp_monitor", labelKey: "devices.bpMonitor", icon: Heart },
+  { value: "glucometer", labelKey: "devices.glucometer", icon: Droplet },
+  { value: "cgm", labelKey: "devices.cgm", icon: Activity },
+  { value: "manual", labelKey: "devices.manualEntry", icon: Plus },
 ];
 
 const getSourceIcon = (type: string) => {
@@ -63,12 +64,13 @@ const getSourceIcon = (type: string) => {
   return found?.icon || Activity;
 };
 
-const getSourceLabel = (type: string) => {
+const getSourceLabel = (type: string, t: (key: string) => string) => {
   const found = SOURCE_TYPES.find(s => s.value === type);
-  return found?.label || type;
+  return found ? t(found.labelKey) : type;
 };
 
 export const DataSourcesManager = () => {
+  const { t } = useLanguage();
   const [sources, setSources] = useState<DataSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState<string | null>(null);
@@ -97,7 +99,7 @@ export const DataSourcesManager = () => {
       setSources(data || []);
     } catch (error) {
       console.error("Error fetching data sources:", error);
-      toast.error("Failed to load connected devices");
+      toast.error(t("devices.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -105,7 +107,7 @@ export const DataSourcesManager = () => {
 
   const addSource = async () => {
     if (!newSource.type) {
-      toast.error("Please select a device type");
+      toast.error(t("devices.selectTypeError"));
       return;
     }
 
@@ -123,13 +125,13 @@ export const DataSourcesManager = () => {
 
       if (error) throw error;
 
-      toast.success("Device added! Mark as connected once paired.");
+      toast.success(t("devices.added"));
       setAddDialogOpen(false);
       setNewSource({ type: "", label: "" });
       fetchSources();
     } catch (error) {
       console.error("Error adding data source:", error);
-      toast.error("Failed to add device");
+      toast.error(t("devices.addFailed"));
     }
   };
 
@@ -148,17 +150,17 @@ export const DataSourcesManager = () => {
 
       if (error) throw error;
 
-      toast.success(newStatus === "connected" ? "Device connected!" : "Device disconnected");
+      toast.success(newStatus === "connected" ? t("devices.connectedToast") : t("devices.disconnectedToast"));
       fetchSources();
     } catch (error) {
       console.error("Error toggling connection:", error);
-      toast.error("Failed to update device");
+      toast.error(t("devices.updateFailed"));
     }
   };
 
   const syncDevice = async (source: DataSource) => {
     if (source.status !== "connected") {
-      toast.error("Connect the device first");
+      toast.error(t("devices.connectFirst"));
       return;
     }
 
@@ -176,11 +178,11 @@ export const DataSourcesManager = () => {
 
       if (error) throw error;
 
-      toast.success("Sync complete! Data imported.");
+      toast.success(t("devices.syncComplete"));
       fetchSources();
     } catch (error) {
       console.error("Error syncing device:", error);
-      toast.error("Sync failed");
+      toast.error(t("devices.syncFailed"));
     } finally {
       setSyncing(null);
     }
@@ -196,23 +198,23 @@ export const DataSourcesManager = () => {
 
       if (error) throw error;
 
-      toast.success("Device removed");
+      toast.success(t("devices.removed"));
       fetchSources();
     } catch (error) {
       console.error("Error deleting data source:", error);
-      toast.error("Failed to remove device");
+      toast.error(t("devices.removeFailed"));
     }
   };
 
   const formatLastSync = (date: string | null) => {
-    if (!date) return "Never synced";
+    if (!date) return t("devices.neverSynced");
     const d = new Date(date);
     const now = new Date();
     const diffMins = Math.floor((now.getTime() - d.getTime()) / 60000);
     
-    if (diffMins < 1) return "Just now";
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ago`;
+    if (diffMins < 1) return t("devices.justNow");
+    if (diffMins < 60) return t("devices.minutesAgo", { count: diffMins });
+    if (diffMins < 1440) return t("devices.hoursAgo", { count: Math.floor(diffMins / 60) });
     return d.toLocaleDateString();
   };
 
@@ -233,33 +235,33 @@ export const DataSourcesManager = () => {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Bluetooth className="w-5 h-5 text-primary" />
-          <h2 className="text-lg font-semibold">Connected Devices</h2>
+          <h2 className="text-lg font-semibold">{t("devices.connectedDevices")}</h2>
         </div>
         
         <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
           <DialogTrigger asChild>
             <Button variant="outline" size="sm" className="gap-2">
               <Plus className="w-4 h-4" />
-              Add Device
+              {t("devices.addDevice")}
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Add New Device</DialogTitle>
+              <DialogTitle>{t("devices.addNewDevice")}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 mt-4">
               <div className="space-y-2">
-                <Label>Device Type</Label>
+                <Label>{t("devices.deviceType")}</Label>
                 <Select value={newSource.type} onValueChange={(v) => setNewSource({ ...newSource, type: v })}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select device type" />
+                    <SelectValue placeholder={t("devices.selectDeviceType")} />
                   </SelectTrigger>
                   <SelectContent>
                     {SOURCE_TYPES.map((type) => (
                       <SelectItem key={type.value} value={type.value}>
                         <div className="flex items-center gap-2">
                           <type.icon className="w-4 h-4" />
-                          {type.label}
+                          {t(type.labelKey)}
                         </div>
                       </SelectItem>
                     ))}
@@ -268,16 +270,16 @@ export const DataSourcesManager = () => {
               </div>
               
               <div className="space-y-2">
-                <Label>Device Name (Optional)</Label>
+                <Label>{t("devices.deviceNameOptional")}</Label>
                 <Input
                   value={newSource.label}
                   onChange={(e) => setNewSource({ ...newSource, label: e.target.value })}
-                  placeholder="e.g., Omron BP Monitor, Ultrahuman CGM"
+                  placeholder={t("devices.deviceNamePlaceholder")}
                 />
               </div>
               
               <Button onClick={addSource} className="w-full">
-                Add Device
+                {t("devices.addDevice")}
               </Button>
             </div>
           </DialogContent>
@@ -289,9 +291,9 @@ export const DataSourcesManager = () => {
           <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mx-auto mb-4">
             <Watch className="w-8 h-8 text-muted-foreground" />
           </div>
-          <p className="text-muted-foreground mb-2">No devices connected</p>
+          <p className="text-muted-foreground mb-2">{t("devices.noDevices")}</p>
           <p className="text-sm text-muted-foreground">
-            Add your BP monitor, glucometer, or smartwatch to auto-sync readings.
+            {t("devices.noDevicesDesc")}
           </p>
         </div>
       ) : (
@@ -319,13 +321,13 @@ export const DataSourcesManager = () => {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="font-medium truncate">
-                      {source.label || getSourceLabel(source.type)}
+                      {source.label || getSourceLabel(source.type, t)}
                     </p>
                     <Badge variant={isConnected ? "default" : "secondary"} className="text-xs">
                       {isConnected ? (
-                        <><Check className="w-3 h-3 mr-1" /> Connected</>
+                        <><Check className="w-3 h-3 mr-1" /> {t("devices.connected")}</>
                       ) : (
-                        <><AlertCircle className="w-3 h-3 mr-1" /> Pending</>
+                        <><AlertCircle className="w-3 h-3 mr-1" /> {t("devices.pending")}</>
                       )}
                     </Badge>
                   </div>
@@ -370,8 +372,7 @@ export const DataSourcesManager = () => {
       {/* Info banner */}
       <div className="mt-4 p-3 rounded-xl bg-muted/50 border border-border/50">
         <p className="text-xs text-muted-foreground">
-          <strong>Coming soon:</strong> Auto-sync with Health Connect (Android) and Apple Health (iOS). 
-          For now, mark devices as "connected" after pairing, and use manual entry.
+          <strong>{t("devices.comingSoon")}</strong> {t("devices.comingSoonDesc")}
         </p>
       </div>
     </Card>

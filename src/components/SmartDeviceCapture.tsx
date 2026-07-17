@@ -50,12 +50,23 @@ export const SmartDeviceCapture = ({
     any: language === "hi" ? "कोई भी डिवाइस" : "Any Device",
   };
 
+  const getUnableToReadMessage = (details?: string) => {
+    const label = deviceLabels[deviceType];
+    if (language === "hi") {
+      return details || `${label} पढ़ा नहीं जा सका। कृपया साफ़ फोटो लें और दोबारा प्रयास करें।`;
+    }
+    return details || `Unable to read the ${label}. Please take a clearer photo and try again.`;
+  };
+
   const handleCapture = useCallback(() => {
+    if (stage === "capturing" || stage === "processing") return;
     haptic("light");
     fileInputRef.current?.click();
-  }, []);
+  }, [stage]);
 
   const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (stage === "capturing" || stage === "processing") return;
+
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -73,11 +84,15 @@ export const SmartDeviceCapture = ({
         fileSize: file.size,
         maxSize: 10 * 1024 * 1024,
       });
-      toast.error(language === "hi" ? "फ़ाइल बहुत बड़ी है (max 10MB)" : "File too large (max 10MB)");
+      const message = language === "hi" ? "फ़ाइल बहुत बड़ी है (max 10MB)" : "File too large (max 10MB)";
+      setError(message);
+      toast.error(message);
+      e.currentTarget.value = "";
       return;
     }
 
     setStage("capturing");
+    setError(null);
     haptic("medium");
 
     const reader = new FileReader();
@@ -93,6 +108,14 @@ export const SmartDeviceCapture = ({
     };
     reader.onerror = () => {
       console.error("[OCR][SmartDeviceCapture] FileReader failed", reader.error);
+      const message = language === "hi"
+        ? "फोटो पढ़ी नहीं जा सकी। कृपया दूसरी फोटो लेकर दोबारा प्रयास करें।"
+        : "Could not read the photo. Please take another photo and try again.";
+      setError(message);
+      setStage("idle");
+      haptic("error");
+      toast.error(message);
+      e.currentTarget.value = "";
     };
     reader.readAsDataURL(file);
   };
@@ -130,7 +153,10 @@ export const SmartDeviceCapture = ({
 
       if (!data.success) {
         console.log("[OCR][SmartDeviceCapture] OCR returned success=false", data);
-        setError(data.error || "Failed to read device");
+        const message = getUnableToReadMessage(data.error);
+        setError(message);
+        haptic("error");
+        toast.error(message);
         setStage("idle");
         return;
       }
@@ -148,23 +174,24 @@ export const SmartDeviceCapture = ({
       setStage("result");
       haptic("success");
 
-      // Auto-apply if high confidence
-      if (data.confidence >= 0.85) {
-        toast.success(
-          language === "hi" 
-            ? `✓ ${data.confidence >= 0.95 ? "एकदम सही" : "अच्छी"} पहचान!` 
-            : `✓ ${data.confidence >= 0.95 ? "Perfect" : "Good"} reading detected!`
-        );
-      }
+      toast.success(
+        data.confidence >= 0.85
+          ? (language === "hi" 
+              ? `✓ ${data.confidence >= 0.95 ? "एकदम सही" : "अच्छी"} पहचान!` 
+              : `✓ ${data.confidence >= 0.95 ? "Perfect" : "Good"} reading detected!`)
+          : (language === "hi"
+              ? "रीडिंग पहचानी गई। कृपया उपयोग करने से पहले जांच लें।"
+              : "Reading detected. Please review before using.")
+      );
     } catch (err) {
       console.error("[OCR][SmartDeviceCapture] OCR exception", err);
-      setError(
-        language === "hi"
-          ? "पढ़ने में त्रुटि। कृपया पुन: प्रयास करें।"
-          : "Failed to read. Please try again."
-      );
+      const message = language === "hi"
+        ? "पढ़ने में त्रुटि। कृपया पुन: प्रयास करें।"
+        : "Failed to read. Please try again.";
+      setError(message);
       setStage("idle");
-      toast.error(language === "hi" ? "पहचानने में त्रुटि" : "Recognition failed");
+      haptic("error");
+      toast.error(message);
     }
   };
 
@@ -213,6 +240,7 @@ export const SmartDeviceCapture = ({
           accept="image/*"
           capture="environment"
           className="hidden"
+          disabled={stage === "capturing" || stage === "processing"}
           onChange={handleImageSelect}
         />
         
@@ -220,10 +248,10 @@ export const SmartDeviceCapture = ({
           variant="outline"
           size="sm"
           onClick={handleCapture}
-          disabled={stage === "processing"}
+          disabled={stage === "capturing" || stage === "processing"}
           className="gap-2"
         >
-          {stage === "processing" ? (
+          {stage === "capturing" || stage === "processing" ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
             <Camera className="w-4 h-4" />
@@ -299,6 +327,7 @@ export const SmartDeviceCapture = ({
         accept="image/*"
         capture="environment"
         className="hidden"
+        disabled={stage === "capturing" || stage === "processing"}
         onChange={handleImageSelect}
       />
 
@@ -317,7 +346,12 @@ export const SmartDeviceCapture = ({
                 : "Take a photo of the device screen"}
             </p>
           </div>
-          <Button onClick={handleCapture} className="w-full" size="lg">
+          <Button
+            onClick={handleCapture}
+            className="w-full"
+            size="lg"
+            disabled={stage === "capturing" || stage === "processing"}
+          >
             <Camera className="w-5 h-5 mr-2" />
             {language === "hi" ? "कैमरा खोलें" : "Open Camera"}
           </Button>

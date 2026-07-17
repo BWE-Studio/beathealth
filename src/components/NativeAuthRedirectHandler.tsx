@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { App as CapacitorApp } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
@@ -8,10 +8,20 @@ import {
   isNativeAuthCallback,
   isNativePlatform,
 } from "@/lib/nativeAuth";
+import { useAuth } from "@/hooks/useAuth";
 
 export const NativeAuthRedirectHandler = () => {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
   const handledUrlRef = useRef<string | null>(null);
+  const [pendingNextPath, setPendingNextPath] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!pendingNextPath || !isAuthenticated) return;
+
+    navigate(pendingNextPath, { replace: true });
+    setPendingNextPath(null);
+  }, [isAuthenticated, navigate, pendingNextPath]);
 
   useEffect(() => {
     if (!isNativePlatform()) return;
@@ -30,7 +40,7 @@ export const NativeAuthRedirectHandler = () => {
       try {
         const { session, next } = await createSessionFromNativeUrl(url);
         if (session) {
-          navigate(next, { replace: true });
+          setPendingNextPath(next);
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Authentication failed";

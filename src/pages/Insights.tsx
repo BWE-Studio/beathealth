@@ -19,7 +19,7 @@ import { FeatureGate } from "@/components/FeatureGate";
 
 const Insights = () => {
   const { history, todayScore } = useHeartScore();
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const [generatingPdf, setGeneratingPdf] = useState(false);
 
   // Fetch AI-generated insights
@@ -196,7 +196,7 @@ const Insights = () => {
                 <Activity className="w-4 h-4 text-primary" />
               </div>
             </div>
-            <p className="text-xs text-muted-foreground mb-0.5">Avg BP</p>
+            <p className="text-xs text-muted-foreground mb-0.5">{t("insights.avgBP")}</p>
             <p className="text-xl font-bold">{aiInsights?.summary?.avgSystolic || '--'}/{aiInsights?.summary?.avgDiastolic || '--'}</p>
           </Card>
           
@@ -206,7 +206,7 @@ const Insights = () => {
                 <Droplet className="w-4 h-4 text-secondary" />
               </div>
             </div>
-            <p className="text-xs text-muted-foreground mb-0.5">Avg Sugar</p>
+            <p className="text-xs text-muted-foreground mb-0.5">{t("insights.avgSugar")}</p>
             <p className="text-xl font-bold">{aiInsights?.summary?.avgSugar || '--'} mg/dL</p>
           </Card>
           
@@ -216,7 +216,7 @@ const Insights = () => {
                 <Logo size="sm" showText={false} />
               </div>
             </div>
-            <p className="text-xs text-muted-foreground mb-0.5">HeartScore</p>
+            <p className="text-xs text-muted-foreground mb-0.5">{t("insights.heartScore")}</p>
             <p className={`text-xl font-bold ${getScoreColor(todayScore?.heart_score || 0)}`}>
               {todayScore?.heart_score || '--'}/100
             </p>
@@ -228,7 +228,7 @@ const Insights = () => {
                 <TrendingUp className="w-4 h-4 text-blue-500" />
               </div>
             </div>
-            <p className="text-xs text-muted-foreground mb-0.5">Avg Steps</p>
+            <p className="text-xs text-muted-foreground mb-0.5">{t("insights.avgSteps")}</p>
             <p className="text-xl font-bold">{aiInsights?.summary?.avgSteps || '--'}</p>
           </Card>
         </div>
@@ -243,10 +243,10 @@ const Insights = () => {
                 </div>
                 <div>
                   <h3 className="font-semibold mb-1 flex items-center gap-2">
-                    AI Health Insights
+                    {t("insights.aiInsights")}
                     <Sparkles className="w-4 h-4 text-primary" />
                   </h3>
-                  <p className="text-sm text-muted-foreground">Personalized analysis based on your health data</p>
+                  <p className="text-sm text-muted-foreground">{t("insights.personalized")}</p>
                 </div>
               </div>
               <div className="prose prose-sm dark:prose-invert max-w-none">
@@ -261,7 +261,7 @@ const Insights = () => {
           <TabsList className="grid w-full grid-cols-3 h-12">
             <TabsTrigger value="heartscore" className="gap-2">
               <Logo size="sm" showText={false} className="w-4 h-4" />
-              <span className="hidden sm:inline">HeartScore</span>
+              <span className="hidden sm:inline">{t("insights.heartScore")}</span>
             </TabsTrigger>
             <TabsTrigger value="bp" className="gap-2">
               <Activity className="w-4 h-4" />
@@ -269,13 +269,13 @@ const Insights = () => {
             </TabsTrigger>
             <TabsTrigger value="sugar" className="gap-2">
               <Droplet className="w-4 h-4" />
-              <span className="hidden sm:inline">Sugar</span>
+              <span className="hidden sm:inline">{t("heartScore.sugar")}</span>
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="heartscore">
             <Card className="p-5 border-border/50">
-              <h3 className="text-lg font-semibold mb-4">HeartScore Trend (30 Days)</h3>
+              <h3 className="text-lg font-semibold mb-4">{t("insights.heartScoreTrend")}</h3>
               {heartScoreData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={280}>
                   <AreaChart data={heartScoreData}>
@@ -308,7 +308,7 @@ const Insights = () => {
                 <div className="h-64 flex items-center justify-center text-muted-foreground">
                   <div className="text-center">
                     <Target className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                    <p className="text-sm">Complete rituals to see your HeartScore trends</p>
+                    <p className="text-sm">{t("insights.emptyHeartScore")}</p>
                   </div>
                 </div>
               )}
@@ -317,7 +317,7 @@ const Insights = () => {
 
           <TabsContent value="bp">
             <Card className="p-5 border-border/50">
-              <h3 className="text-lg font-semibold mb-4">Blood Pressure Trend (30 Days)</h3>
+              <h3 className="text-lg font-semibold mb-4">{t("insights.bpTrend")}</h3>
               {bpData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={280}>
                   <LineChart data={bpData}>
@@ -339,7 +339,7 @@ const Insights = () => {
                 <div className="h-64 flex items-center justify-center text-muted-foreground">
                   <div className="text-center">
                     <Activity className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                    <p className="text-sm">Log BP readings to see trends</p>
+                    <p className="text-sm">{t("insights.emptyBp")}</p>
                   </div>
                 </div>
               )}
@@ -348,7 +348,7 @@ const Insights = () => {
 
           <TabsContent value="sugar">
             <Card className="p-5 border-border/50">
-              <h3 className="text-lg font-semibold mb-4">Blood Sugar Trend (30 Days)</h3>
+              <h3 className="text-lg font-semibold mb-4">{t("insights.sugarTrend")}</h3>
               {sugarData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={280}>
                   <AreaChart data={sugarData}>
@@ -375,7 +375,7 @@ const Insights = () => {
                 <div className="h-64 flex items-center justify-center text-muted-foreground">
                   <div className="text-center">
                     <Droplet className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                    <p className="text-sm">Log sugar levels to see trends</p>
+                    <p className="text-sm">{t("insights.emptySugar")}</p>
                   </div>
                 </div>
               )}

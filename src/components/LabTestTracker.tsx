@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { TestTube, Plus, Calendar, TrendingUp, TrendingDown, Minus, AlertCircle } from "lucide-react";
 import { format, parseISO, differenceInDays } from "date-fns";
 import { toast } from "sonner";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface LabResult {
   id: string;
@@ -37,6 +38,7 @@ const TEST_TYPES = [
 
 export const LabTestTracker = () => {
   const queryClient = useQueryClient();
+  const { t } = useLanguage();
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [selectedTest, setSelectedTest] = useState("");
   const [testDate, setTestDate] = useState(new Date().toISOString().split("T")[0]);
@@ -124,11 +126,11 @@ export const LabTestTracker = () => {
       setSelectedTest("");
       setTestValue("");
       setLabName("");
-      toast.success("Lab result added");
+      toast.success(t("labs.resultAdded"));
     },
     onError: (error) => {
       console.error("Error adding lab result:", error);
-      toast.error("Failed to add result");
+      toast.error(t("labs.addFailed"));
     },
   });
 
@@ -191,25 +193,25 @@ export const LabTestTracker = () => {
         <CardTitle className="flex items-center justify-between">
           <span className="flex items-center gap-2 text-lg">
             <TestTube className="h-5 w-5 text-purple-500" />
-            Lab Results
+            {t("labs.title")}
           </span>
           <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
             <DialogTrigger asChild>
               <Button size="sm" className="gap-1">
                 <Plus className="h-4 w-4" />
-                Add
+                {t("labs.add")}
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-md">
               <DialogHeader>
-                <DialogTitle>Add Lab Result</DialogTitle>
+                <DialogTitle>{t("labs.addResult")}</DialogTitle>
               </DialogHeader>
               <div className="space-y-4 py-2">
                 <div className="space-y-2">
-                  <Label>Test Type</Label>
+                  <Label>{t("labs.testType")}</Label>
                   <Select value={selectedTest} onValueChange={setSelectedTest}>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select test" />
+                      <SelectValue placeholder={t("labs.selectTest")} />
                     </SelectTrigger>
                     <SelectContent>
                       {TEST_TYPES.map((test) => (
@@ -222,7 +224,7 @@ export const LabTestTracker = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Test Date</Label>
+                  <Label>{t("labs.testDate")}</Label>
                   <Input
                     type="date"
                     value={testDate}
@@ -232,23 +234,23 @@ export const LabTestTracker = () => {
 
                 <div className="space-y-2">
                   <Label>
-                    Value {selectedTest && `(${getTestInfo(selectedTest)?.unit})`}
+                    {t("labs.value")} {selectedTest && `(${getTestInfo(selectedTest)?.unit})`}
                   </Label>
                   <Input
                     type="number"
                     step="0.1"
                     value={testValue}
                     onChange={(e) => setTestValue(e.target.value)}
-                    placeholder={selectedTest ? `Normal: ${getTestInfo(selectedTest)?.normalRange.min}-${getTestInfo(selectedTest)?.normalRange.max}` : ""}
+                    placeholder={selectedTest ? `${t("labs.normal")}: ${getTestInfo(selectedTest)?.normalRange.min}-${getTestInfo(selectedTest)?.normalRange.max}` : ""}
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Lab Name (Optional)</Label>
+                  <Label>{t("labs.labNameOptional")}</Label>
                   <Input
                     value={labName}
                     onChange={(e) => setLabName(e.target.value)}
-                    placeholder="e.g., Apollo Diagnostics"
+                    placeholder={t("labs.labNamePlaceholder")}
                   />
                 </div>
 
@@ -257,7 +259,7 @@ export const LabTestTracker = () => {
                   onClick={() => addResult.mutate()}
                   disabled={!selectedTest || !testValue}
                 >
-                  Save Result
+                  {t("labs.saveResult")}
                 </Button>
               </div>
             </DialogContent>
@@ -270,7 +272,7 @@ export const LabTestTracker = () => {
           <div className="p-3 rounded-lg border border-orange-500/30 bg-orange-500/5">
             <div className="flex items-center gap-2 text-orange-600 mb-2">
               <AlertCircle className="h-4 w-4" />
-              <span className="text-sm font-medium">Tests Due Soon</span>
+              <span className="text-sm font-medium">{t("labs.testsDueSoon")}</span>
             </div>
             <div className="space-y-1">
               {upcomingTests.map((test) => {
@@ -280,7 +282,7 @@ export const LabTestTracker = () => {
                   <div key={test.id} className="flex justify-between text-sm">
                     <span>{info?.label || test.test_type}</span>
                     <span className={daysUntil < 0 ? "text-red-500" : "text-muted-foreground"}>
-                      {daysUntil < 0 ? `${Math.abs(daysUntil)} days overdue` : `in ${daysUntil} days`}
+                      {daysUntil < 0 ? t("labs.daysOverdue", { count: Math.abs(daysUntil) }) : t("labs.inDays", { count: daysUntil })}
                     </span>
                   </div>
                 );
@@ -310,7 +312,7 @@ export const LabTestTracker = () => {
                       <p className="text-xs text-muted-foreground">
                         {item.latestResult
                           ? format(parseISO(item.latestResult.test_date), "MMM d, yyyy")
-                          : "No results yet"}
+                          : t("labs.noResultsYet")}
                       </p>
                     </div>
                     <div className="text-right">
@@ -331,7 +333,7 @@ export const LabTestTracker = () => {
                   </div>
                   {!inRange && (
                     <p className="text-xs text-red-500 mt-1">
-                      Outside normal range ({item.normalRange.min}-{item.normalRange.max})
+                      {t("labs.outsideNormalRange")} ({item.normalRange.min}-{item.normalRange.max})
                     </p>
                   )}
                 </div>
@@ -341,8 +343,8 @@ export const LabTestTracker = () => {
         ) : (
           <div className="text-center py-6">
             <TestTube className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-            <p className="text-muted-foreground">No lab results yet</p>
-            <p className="text-sm text-muted-foreground">Add your first result to start tracking</p>
+            <p className="text-muted-foreground">{t("labs.noLabResults")}</p>
+            <p className="text-sm text-muted-foreground">{t("labs.noLabResultsDesc")}</p>
           </div>
         )}
       </CardContent>

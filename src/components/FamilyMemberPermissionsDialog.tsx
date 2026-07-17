@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface FamilyMemberPermissionsDialogProps {
   open: boolean;
@@ -47,6 +48,7 @@ export const FamilyMemberPermissionsDialog = ({
   onSave,
   isUpdating,
 }: FamilyMemberPermissionsDialogProps) => {
+  const { t } = useLanguage();
   const [relationship, setRelationship] = useState(member.relationship || "");
   const [canView, setCanView] = useState(member.can_view ?? true);
   const [canNudge, setCanNudge] = useState(member.can_nudge ?? true);
@@ -64,43 +66,43 @@ export const FamilyMemberPermissionsDialog = ({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>Manage Permissions</DialogTitle>
+          <DialogTitle>{t("family.managePermissions")}</DialogTitle>
           <DialogDescription>
-            Update relationship and permissions for {member.member?.full_name || member.member?.email}
+            {t("family.updatePermissions").replace("{name}", member.member?.full_name || member.member?.email || "")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6 py-4">
           {/* Relationship */}
           <div className="space-y-2">
-            <Label htmlFor="relationship">Relationship</Label>
+            <Label htmlFor="relationship">{t("family.relationship")}</Label>
             <Select value={relationship} onValueChange={setRelationship}>
               <SelectTrigger id="relationship">
-                <SelectValue placeholder="Select relationship" />
+                <SelectValue placeholder={t("family.selectRelationship")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="parent">Parent</SelectItem>
-                <SelectItem value="child">Child</SelectItem>
-                <SelectItem value="spouse">Spouse</SelectItem>
-                <SelectItem value="sibling">Sibling</SelectItem>
-                <SelectItem value="grandparent">Grandparent</SelectItem>
-                <SelectItem value="grandchild">Grandchild</SelectItem>
-                <SelectItem value="other">Other</SelectItem>
+                <SelectItem value="parent">{t("family.parent")}</SelectItem>
+                <SelectItem value="child">{t("family.child")}</SelectItem>
+                <SelectItem value="spouse">{t("family.spouse")}</SelectItem>
+                <SelectItem value="sibling">{t("family.sibling")}</SelectItem>
+                <SelectItem value="grandparent">{t("family.grandparent")}</SelectItem>
+                <SelectItem value="grandchild">{t("family.grandchild")}</SelectItem>
+                <SelectItem value="other">{t("family.other")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           {/* Permissions */}
           <div className="space-y-4 p-4 bg-muted/30 rounded-lg border">
-            <h4 className="text-sm font-semibold">Access Permissions</h4>
+            <h4 className="text-sm font-semibold">{t("family.accessPermissions")}</h4>
             
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label htmlFor="can-view" className="text-sm font-normal">
-                  View Health Data
+                  {t("family.viewHealthData")}
                 </Label>
                 <p className="text-xs text-muted-foreground">
-                  Allow viewing BP, sugar, medications, and health metrics
+                  {t("family.viewHealthDesc")}
                 </p>
               </div>
               <Switch
@@ -113,10 +115,10 @@ export const FamilyMemberPermissionsDialog = ({
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label htmlFor="can-nudge" className="text-sm font-normal">
-                  Send Reminders
+                  {t("family.sendReminders")}
                 </Label>
                 <p className="text-xs text-muted-foreground">
-                  Allow sending health reminders and check-in nudges
+                  {t("family.sendRemindersDesc")}
                 </p>
               </div>
               <Switch
@@ -129,16 +131,16 @@ export const FamilyMemberPermissionsDialog = ({
 
           {/* Security Notice */}
           <div className="text-xs text-muted-foreground bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
-            <strong>Privacy Notice:</strong> Family members can only view data, not modify it. All access is logged for security.
+            <strong>{t("family.privacyNotice")}</strong> {t("family.privacyNoticeText")}
           </div>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button onClick={handleSave} disabled={isUpdating}>
-            {isUpdating ? "Saving..." : "Save Changes"}
+            {isUpdating ? t("common.saving") : t("profile.saveChanges")}
           </Button>
         </DialogFooter>
       </DialogContent>

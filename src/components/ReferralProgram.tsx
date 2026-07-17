@@ -9,12 +9,14 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { Share } from "@capacitor/share";
 
 export const ReferralProgram = () => {
   const { user } = useAuth();
   const { language } = useLanguage();
   const queryClient = useQueryClient();
   const [isCopied, setIsCopied] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
 
   // Fetch or create referral code
   const { data: referral, isLoading } = useQuery({
@@ -74,27 +76,62 @@ export const ReferralProgram = () => {
   };
 
   const shareReferral = async () => {
-    if (!referral?.referral_code) return;
+    if (!referral?.referral_code || isSharing) return;
     
     const text = language === "hi"
-      ? `Beat ऐप से अपने स्वास्थ्य को ट्रैक करें! मेरे रेफरल कोड ${referral.referral_code} का उपयोग करके साइन अप करें और 50 पॉइंट्स पाएं! 💪`
-      : `Track your health with Beat app! Sign up using my referral code ${referral.referral_code} and get 50 points! 💪`;
+      ? `Beat Health परिवारों को BP, शुगर, दवाइयों और दैनिक स्वास्थ्य आदतों को आसानी से ट्रैक करने में मदद करता है। मेरे रेफरल कोड ${referral.referral_code} से जुड़ें और 50 पॉइंट्स पाएं!`
+      : `Beat Health helps families track BP, sugar, medications, and daily heart-health habits in one simple app. Join with my referral code ${referral.referral_code} and get 50 points!`;
     
     const url = `https://beathealth.lovable.app/?ref=${referral.referral_code}`;
+    const shareContent = {
+      title: "Beat Health",
+      text,
+      url,
+      dialogTitle: language === "hi" ? "दोस्तों को आमंत्रित करें" : "Invite Friends",
+    };
+
+    const isShareCancelled = (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error || "");
+      return /cancel/i.test(message) || /abort/i.test(message);
+    };
     
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: "Beat - Health Intelligence",
-          text,
-          url,
-        });
-      } catch (e) {
-        // User cancelled
+    setIsSharing(true);
+
+    try {
+      const canShare = await Share.canShare();
+      if (canShare.value) {
+        await Share.share(shareContent);
+        return;
       }
-    } else {
+
+      if (navigator.share) {
+        await navigator.share({
+          title: shareContent.title,
+          text: shareContent.text,
+          url: shareContent.url,
+        });
+        return;
+      }
+
       await navigator.clipboard.writeText(`${text}\n${url}`);
       toast.success(language === "hi" ? "लिंक कॉपी हो गया!" : "Link copied!");
+    } catch (error) {
+      if (isShareCancelled(error)) return;
+
+      console.error("Invite share failed:", error);
+      try {
+        await navigator.clipboard.writeText(`${text}\n${url}`);
+        toast.success(language === "hi" ? "लिंक कॉपी हो गया!" : "Link copied!");
+      } catch (clipboardError) {
+        console.error("Invite link copy failed:", clipboardError);
+        toast.error(
+          language === "hi"
+            ? "शेयर उपलब्ध नहीं है। कृपया बाद में दोबारा प्रयास करें।"
+            : "Sharing is not available right now. Please try again later."
+        );
+      }
+    } finally {
+      setIsSharing(false);
     }
   };
 
@@ -167,9 +204,9 @@ export const ReferralProgram = () => {
         </div>
 
         {/* Share Button */}
-        <Button onClick={shareReferral} className="w-full gap-2">
+        <Button onClick={shareReferral} disabled={isSharing} className="w-full gap-2">
           <Share2 className="w-4 h-4" />
-          {language === "hi" ? "दोस्तों को शेयर करें" : "Share with Friends"}
+          {language === "hi" ? "दोस्तों को आमंत्रित करें" : "Invite Friends"}
         </Button>
       </div>
 

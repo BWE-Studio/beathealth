@@ -37,9 +37,71 @@ const LONELINESS_OPTIONS = [
   { value: 4, label: "Very", emoji: "😢" },
 ];
 
+type HeartScoreRecord = {
+  user_id: string;
+  score_date: string;
+  [key: string]: unknown;
+};
+
+const upsertHistoryScore = (history: HeartScoreRecord[] | undefined, score: HeartScoreRecord) => {
+  const existing = history ?? [];
+  const withoutCurrentDate = existing.filter((item) => item.score_date !== score.score_date);
+  return [score, ...withoutCurrentDate].sort((a, b) => b.score_date.localeCompare(a.score_date));
+};
+
+const formatSupabaseError = (error: unknown) => {
+  if (!error || typeof error !== "object") return String(error);
+
+  const maybeError = error as {
+    code?: string;
+    details?: string;
+    hint?: string;
+    message?: string;
+    status?: number;
+  };
+
+  return [
+    maybeError.code && `code=${maybeError.code}`,
+    maybeError.status && `status=${maybeError.status}`,
+    maybeError.message && `message=${maybeError.message}`,
+    maybeError.details && `details=${maybeError.details}`,
+    maybeError.hint && `hint=${maybeError.hint}`,
+  ].filter(Boolean).join(" | ");
+};
+
+const traceJson = (value: unknown) => JSON.stringify(
+  value,
+  (_key, item) => {
+    if (item instanceof Error) {
+      return {
+        name: item.name,
+        message: item.message,
+        stack: item.stack,
+      };
+    }
+    return item;
+  },
+  2
+);
+
+const logTrace = (label: string, value: unknown) => {
+  if (!import.meta.env.DEV) return;
+  console.log(`${label}\n${traceJson(value)}`);
+};
+
+const throwCheckinError = (stepName: string, error: unknown) => {
+  const details = formatSupabaseError(error);
+  console.error(`[UnifiedCheckin] ${stepName} failed\n${traceJson({
+    stepName,
+    details,
+    error,
+  })}`);
+  throw new Error(details ? `${stepName} failed: ${details}` : `${stepName} failed`);
+};
+
 export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut }: UnifiedCheckinProps) => {
   const queryClient = useQueryClient();
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   
   // Determine ritual type based on time if auto
   const getAutoType = () => {
@@ -106,7 +168,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
     if (reading.glucose) setFastingSugar(reading.glucose.toString());
     setShowOCR(false);
     haptic("success");
-    toast.success(language === "hi" ? "रीडिंग ऑटो-भरी गई!" : "Reading auto-filled!");
+    toast.success(t("checkin.readingAutoFilled"));
   };
 
   const submitCheckin = useMutation({
@@ -116,28 +178,60 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
 
       const now = new Date();
       const today = now.toISOString().split("T")[0];
+      const traceId = `checkin-${Date.now()}`;
+
+      logTrace("[CheckinTrace] Morning/Evening check-in start", {
+        traceId,
+        userId: user.id,
+        ritualType,
+        isMorning,
+        today,
+        measuredAt: now.toISOString(),
+        inputs: {
+          systolic,
+          diastolic,
+          heartRate,
+          fastingSugar,
+          stepsCount,
+          sleepQuality,
+          medsTaken,
+          socialInteractions,
+          moodScore,
+          leftHome,
+          lonelinessScore,
+          talkedToFamily,
+        },
+      });
 
       // Log BP if provided
       if (systolic && diastolic) {
-        await supabase.from("bp_logs").insert({
+        const bpPayload = {
           user_id: user.id,
           systolic: parseInt(systolic),
           diastolic: parseInt(diastolic),
           heart_rate: heartRate ? parseInt(heartRate) : null,
           measured_at: now.toISOString(),
           ritual_type: ritualType,
-        });
+        };
+        logTrace("[CheckinTrace] BP insert request", { traceId, bpPayload });
+        const { data: bpData, error: bpError } = await supabase.from("bp_logs").insert(bpPayload).select("*").single();
+        logTrace("[CheckinTrace] BP insert response", { traceId, insertedRow: bpData, error: bpError });
+        if (bpError) throwCheckinError("BP log insert", bpError);
       }
 
       // Log sugar if provided (morning only)
       if (isMorning && fastingSugar) {
-        await supabase.from("sugar_logs").insert({
+        const sugarPayload = {
           user_id: user.id,
           glucose_mg_dl: parseInt(fastingSugar),
           measurement_type: "fasting",
           measured_at: now.toISOString(),
           ritual_type: ritualType,
-        });
+        };
+        logTrace("[CheckinTrace] Sugar insert request", { traceId, sugarPayload });
+        const { data: sugarData, error: sugarError } = await supabase.from("sugar_logs").insert(sugarPayload).select("*").single();
+        logTrace("[CheckinTrace] Sugar insert response", { traceId, insertedRow: sugarData, error: sugarError });
+        if (sugarError) throwCheckinError("Sugar log insert", sugarError);
       }
 
       // Log behavior
@@ -148,7 +242,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
         }
       }
 
-      await supabase.from("behavior_logs").insert([{
+      const behaviorPayload = {
         user_id: user.id,
         log_date: today,
         ritual_type: ritualType,
@@ -158,15 +252,26 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
         notes: notes || null,
         loneliness_score: lonelinessScore,
         social_interaction_count: socialInteractions,
-      }]);
+      };
+      logTrace("[CheckinTrace] Behavior insert request", { traceId, behaviorPayload });
+      const { data: behaviorData, error: behaviorError } = await supabase.from("behavior_logs").insert([behaviorPayload]).select("*").single();
+      logTrace("[CheckinTrace] Behavior insert response", { traceId, insertedRow: behaviorData, error: behaviorError });
+      if (behaviorError) throwCheckinError("Behavior log insert", behaviorError);
 
       // Log social wellness for both morning and evening
-      const { data: existing } = await supabase
+      const { data: existing, error: existingSocialError } = await supabase
         .from("social_wellness_logs")
         .select("id")
         .eq("user_id", user.id)
         .eq("log_date", today)
         .maybeSingle();
+      logTrace("[CheckinTrace] Social wellness lookup response", {
+        traceId,
+        query: { table: "social_wellness_logs", userId: user.id, logDate: today },
+        data: existing,
+        error: existingSocialError,
+      });
+      if (existingSocialError) throwCheckinError("Social wellness lookup", existingSocialError);
 
       const socialData = {
         social_interactions: socialInteractions,
@@ -177,34 +282,89 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
       };
 
       if (existing) {
-        await supabase.from("social_wellness_logs").update(socialData).eq("id", existing.id);
+        logTrace("[CheckinTrace] Social wellness update request", { traceId, id: existing.id, socialData });
+        const { data: socialUpdateData, error: socialUpdateError } = await supabase.from("social_wellness_logs").update(socialData).eq("id", existing.id).select("*").single();
+        logTrace("[CheckinTrace] Social wellness update response", { traceId, updatedRow: socialUpdateData, error: socialUpdateError });
+        if (socialUpdateError) throwCheckinError("Social wellness update", socialUpdateError);
       } else {
-        await supabase.from("social_wellness_logs").insert({
+        const socialInsertPayload = {
           user_id: user.id,
           log_date: today,
           ...socialData,
-        });
+        };
+        logTrace("[CheckinTrace] Social wellness insert request", { traceId, socialInsertPayload });
+        const { data: socialInsertData, error: socialInsertError } = await supabase.from("social_wellness_logs").insert(socialInsertPayload).select("*").single();
+        logTrace("[CheckinTrace] Social wellness insert response", { traceId, insertedRow: socialInsertData, error: socialInsertError });
+        if (socialInsertError) throwCheckinError("Social wellness insert", socialInsertError);
       }
 
       // Update streak
-      await supabase.rpc("update_or_create_streak", {
+      logTrace("[CheckinTrace] Streak RPC request", { traceId, p_user_id: user.id, p_type: "daily_checkin" });
+      const { error: streakError } = await supabase.rpc("update_or_create_streak", {
         p_user_id: user.id,
-        p_type: ritualType,
+        p_type: "daily_checkin",
       });
+      logTrace("[CheckinTrace] Streak RPC response", { traceId, error: streakError });
+      if (streakError) throwCheckinError("Daily check-in streak update", streakError);
 
       // Calculate heart score
-      await supabase.functions.invoke("calculate-heart-score", {
-        body: { userId: user.id },
+      logTrace("[CheckinTrace] calculate-heart-score invoke request", {
+        traceId,
+        body: { date: today },
       });
+      const { data: scoreData, error: scoreError } = await supabase.functions.invoke("calculate-heart-score", {
+        body: { date: today },
+      });
+      logTrace("[CheckinTrace] calculate-heart-score invoke response", {
+        traceId,
+        response: scoreData,
+        heartScore: scoreData?.heartScore?.heart_score,
+        bpScore: scoreData?.heartScore?.bp_score,
+        sugarScore: scoreData?.heartScore?.sugar_score,
+        returnedRow: scoreData?.heartScore,
+        error: scoreError,
+      });
+      if (scoreError) throwCheckinError("HeartScore calculation", scoreError);
+      if (scoreData?.success === false) {
+        throwCheckinError("HeartScore calculation", scoreData);
+      }
 
-      return true;
+      return { userId: user.id, heartScore: scoreData?.heartScore as HeartScoreRecord | undefined };
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rituals"] });
+    onSuccess: ({ userId, heartScore }) => {
+      logTrace("[CheckinTrace] Check-in mutation success", {
+        userId,
+        heartScore,
+        invalidations: [
+          ["rituals", userId],
+          ["ritual-status"],
+          ["streaks", userId],
+          ["social-wellness", "weekly"],
+        ],
+        cacheWrites: heartScore?.user_id
+          ? [
+              ["heartScore", "today", heartScore.user_id],
+              ["heartScore", "history", heartScore.user_id],
+            ]
+          : [
+              ["heartScore", "today", userId],
+              ["heartScore", "history", userId],
+            ],
+      });
+      queryClient.invalidateQueries({ queryKey: ["rituals", userId] });
       queryClient.invalidateQueries({ queryKey: ["ritual-status"] });
-      queryClient.invalidateQueries({ queryKey: ["heart-score"] });
-      queryClient.invalidateQueries({ queryKey: ["streaks"] });
-      queryClient.invalidateQueries({ queryKey: ["social-wellness"] });
+      queryClient.invalidateQueries({ queryKey: ["streaks", userId] });
+      queryClient.invalidateQueries({ queryKey: ["social-wellness", "weekly"] });
+      if (heartScore?.user_id) {
+        queryClient.setQueryData(["heartScore", "today", heartScore.user_id], heartScore);
+        queryClient.setQueryData<HeartScoreRecord[] | undefined>(
+          ["heartScore", "history", heartScore.user_id],
+          (history) => upsertHistoryScore(history, heartScore)
+        );
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["heartScore", "today", userId] });
+        queryClient.invalidateQueries({ queryKey: ["heartScore", "history", userId] });
+      }
 
       // Celebration
       confetti({
@@ -214,15 +374,17 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
       });
 
       haptic("success");
-      toast.success(`${isMorning ? "Morning" : "Evening"} check-in complete! 🎉`);
+      toast.success(isMorning ? t("checkin.morningComplete") : t("checkin.eveningComplete"));
       
       // Reset and close
       resetForm();
       onClose();
     },
     onError: (error) => {
-      console.error("Check-in error:", error);
-      toast.error("Failed to save check-in");
+      console.error(`[UnifiedCheckin] Check-in failed\n${traceJson(error)}`);
+      toast.error(t("checkin.failed"), {
+        description: error instanceof Error ? error.message : t("checkin.tryAgain"),
+      });
     },
   });
 
@@ -270,7 +432,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
         <SheetHeader className="pb-4">
           <SheetTitle className="flex items-center gap-2">
             {isMorning ? <Sun className="h-5 w-5 text-orange-500" /> : <Moon className="h-5 w-5 text-indigo-500" />}
-            {isMorning ? "Morning" : "Evening"} Check-in
+            {isMorning ? t("checkin.morningTitle") : t("checkin.eveningTitle")}
           </SheetTitle>
           <Progress value={progress} className="h-2" />
         </SheetHeader>
@@ -278,18 +440,18 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
         <div className="space-y-6 py-4 overflow-y-auto max-h-[calc(85vh-150px)]">
           {/* Step 1: Vitals */}
           {step === 1 && (
-            <div className="space-y-6 animate-fade-in">
+            <div className="space-y-4 animate-fade-in">
               <div className="text-center mb-4">
-                <Heart className="h-12 w-12 text-red-500 mx-auto mb-2" />
+                <Heart className="h-10 w-10 text-red-500 mx-auto mb-2" />
                 <h3 className="text-lg font-semibold">
                   {vitalsMode === "sugar"
-                    ? (language === "hi" ? "ब्लड शुगर" : "Blood Sugar")
-                    : (language === "hi" ? "ब्लड प्रेशर" : "Blood Pressure")}
+                    ? t("checkin.randomSugar")
+                    : t("checkin.bloodPressure")}
                 </h3>
                 <p className="text-sm text-muted-foreground">
                   {vitalsMode === "sugar"
-                    ? (language === "hi" ? "अपनी शुगर रीडिंग दर्ज करें (वैकल्पिक)" : "Enter your sugar reading (optional)")
-                    : (language === "hi" ? "अपनी BP रीडिंग दर्ज करें (वैकल्पिक)" : "Enter your BP reading (optional)")}
+                    ? t("checkin.enterSugarOptional")
+                    : t("checkin.enterBpOptional")}
                 </p>
               </div>
 
@@ -301,18 +463,18 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                     setOcrDeviceType("bp_monitor");
                     setShowOCR(true);
                   }}
-                  className="w-full p-4 rounded-xl bg-gradient-to-r from-primary/10 to-accent/10 border border-primary/20 flex items-center gap-4 active:scale-[0.98] transition-transform"
+                  className="w-full p-3 rounded-xl bg-gradient-to-r from-primary/10 to-accent/10 border border-primary/20 flex items-center gap-3 active:scale-[0.98] transition-transform"
                 >
-                  <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center">
-                    <Camera className="w-6 h-6 text-primary" />
+                  <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
+                    <Camera className="w-5 h-5 text-primary" />
                   </div>
                   <div className="flex-1 text-left">
                     <p className="font-semibold flex items-center gap-2">
                       <Zap className="w-4 h-4 text-primary" />
-                      {language === "hi" ? "फोटो से ऑटो-भरें" : "Auto-fill from Photo"}
+                      {t("checkin.autoFillPhoto")}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {language === "hi" ? "BP मॉनिटर की फोटो लें" : "Take a photo of your BP monitor"}
+                      {t("checkin.bpPhotoHelp")}
                     </p>
                   </div>
                 </button>
@@ -332,7 +494,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                       className="w-full mt-2" 
                       onClick={() => setShowOCR(false)}
                     >
-                      {language === "hi" ? "रद्द करें" : "Cancel"}
+                      {t("common.cancel")}
                     </Button>
                   </div>
                 </div>
@@ -342,56 +504,65 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                 <div className="relative flex items-center gap-4 py-2">
                   <div className="flex-1 h-px bg-border" />
                   <span className="text-xs text-muted-foreground">
-                    {language === "hi" ? "या मैन्युअली दर्ज करें" : "or enter manually"}
+                    {t("checkin.orManual")}
                   </span>
                   <div className="flex-1 h-px bg-border" />
                 </div>
               )}
 
               {vitalsMode !== "sugar" && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>{language === "hi" ? "सिस्टोलिक (ऊपर)" : "Systolic (top)"}</Label>
-                    <Input
-                      type="number"
-                      placeholder="120"
-                      value={systolic}
-                      onChange={(e) => setSystolic(e.target.value)}
-                      className="text-center text-xl"
-                    />
+                <div className="rounded-2xl border border-border/50 bg-card/50 p-4 space-y-4">
+                  <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-4">
+                    <div className="flex min-w-0 flex-col gap-2">
+                      <Label htmlFor="checkin-systolic" className="block px-1 text-xs leading-5 text-muted-foreground">
+                        {t("checkin.systolicShort")}
+                      </Label>
+                      <Input
+                        id="checkin-systolic"
+                        type="number"
+                        placeholder="120"
+                        value={systolic}
+                        onChange={(e) => setSystolic(e.target.value)}
+                        className="h-11 text-center text-lg placeholder:text-muted-foreground/50"
+                      />
+                    </div>
+                    <div className="flex min-w-0 flex-col gap-2">
+                      <Label htmlFor="checkin-diastolic" className="block px-1 text-xs leading-5 text-muted-foreground">
+                        {t("checkin.diastolicShort")}
+                      </Label>
+                      <Input
+                        id="checkin-diastolic"
+                        type="number"
+                        placeholder="80"
+                        value={diastolic}
+                        onChange={(e) => setDiastolic(e.target.value)}
+                        className="h-11 text-center text-lg placeholder:text-muted-foreground/50"
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label>{language === "hi" ? "डायस्टोलिक (नीचे)" : "Diastolic (bottom)"}</Label>
-                    <Input
-                      type="number"
-                      placeholder="80"
-                      value={diastolic}
-                      onChange={(e) => setDiastolic(e.target.value)}
-                      className="text-center text-xl"
-                    />
-                  </div>
-                </div>
-              )}
 
-              {vitalsMode !== "sugar" && (
-                <div className="space-y-2">
-                  <Label>{language === "hi" ? "हृदय गति (वैकल्पिक)" : "Heart Rate (optional)"}</Label>
-                  <Input
-                    type="number"
-                    placeholder="72"
-                    value={heartRate}
-                    onChange={(e) => setHeartRate(e.target.value)}
-                    className="text-center"
-                  />
+                  <div className="flex min-w-0 flex-col gap-2">
+                    <Label htmlFor="checkin-heart-rate" className="block px-1 text-xs leading-5 text-muted-foreground">
+                      {t("checkin.heartRateOptional")}
+                    </Label>
+                    <Input
+                      id="checkin-heart-rate"
+                      type="number"
+                      placeholder="72"
+                      value={heartRate}
+                      onChange={(e) => setHeartRate(e.target.value)}
+                      className="h-10 text-center placeholder:text-muted-foreground/50"
+                    />
+                  </div>
                 </div>
               )}
 
               {isMorning && vitalsMode !== "bp" && (
-                <div className={`space-y-4 ${vitalsMode === "all" ? "pt-4 border-t" : ""}`}>
+                <div className={`rounded-2xl border border-border/50 bg-card/50 p-3 space-y-3 ${vitalsMode === "all" ? "mt-1" : ""}`}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Droplet className="h-5 w-5 text-blue-500" />
-                      <Label>{language === "hi" ? "फास्टिंग शुगर (mg/dL)" : "Fasting Blood Sugar (mg/dL)"}</Label>
+                      <Label className="block text-sm leading-none">{t("checkin.fastingBloodSugar")}</Label>
                     </div>
                     <button
                       onClick={() => {
@@ -402,7 +573,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                       className="text-xs text-primary flex items-center gap-1"
                     >
                       <Camera className="w-3 h-3" />
-                      {language === "hi" ? "स्कैन" : "Scan"}
+                      {t("checkin.scan")}
                     </button>
                   </div>
                   <Input
@@ -410,7 +581,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                     placeholder="100"
                     value={fastingSugar}
                     onChange={(e) => setFastingSugar(e.target.value)}
-                    className="text-center text-xl"
+                    className="h-11 text-center text-lg placeholder:text-muted-foreground/50"
                   />
                 </div>
               )}
@@ -424,7 +595,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                 <>
                   <div className="text-center mb-6">
                     <Moon className="h-12 w-12 text-indigo-500 mx-auto mb-2" />
-                    <h3 className="text-lg font-semibold">How did you sleep?</h3>
+                    <h3 className="text-lg font-semibold">{t("checkin.sleepQuestion")}</h3>
                   </div>
 
                   <div className="grid grid-cols-5 gap-2">
@@ -444,7 +615,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                            quality === "fair" ? "😐" : 
                            quality === "poor" ? "😩" : "😵"}
                         </span>
-                        <p className="text-xs mt-1 capitalize">{quality.replace("_", " ")}</p>
+                        <p className="text-xs mt-1 capitalize">{t(`checkin.${quality === "very_poor" ? "veryPoor" : quality}`)}</p>
                       </button>
                     ))}
                   </div>
@@ -453,7 +624,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                 <>
                   <div className="text-center mb-6">
                     <Brain className="h-12 w-12 text-purple-500 mx-auto mb-2" />
-                    <h3 className="text-lg font-semibold">How are you feeling?</h3>
+                    <h3 className="text-lg font-semibold">{t("checkin.feelingQuestion")}</h3>
                   </div>
 
                   <div className="flex justify-between px-4">
@@ -481,14 +652,14 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
             <div className="space-y-6 animate-fade-in">
               <div className="text-center mb-6">
                 <Users className="h-12 w-12 text-pink-500 mx-auto mb-2" />
-                <h3 className="text-lg font-semibold">Social Connection</h3>
-                <p className="text-sm text-muted-foreground">How connected do you feel?</p>
+                <h3 className="text-lg font-semibold">{t("checkin.socialConnection")}</h3>
+                <p className="text-sm text-muted-foreground">{t("checkin.connectedQuestion")}</p>
               </div>
 
               <div className="space-y-4">
                 {/* Talked to family */}
                 <div className="p-4 rounded-xl border border-border/50 bg-card">
-                  <p className="font-medium mb-3">Did you talk to family or friends?</p>
+                  <p className="font-medium mb-3">{t("checkin.talkedQuestion")}</p>
                   <div className="flex gap-3">
                     <button
                       onClick={() => setTalkedToFamily(true)}
@@ -498,7 +669,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                           : "bg-muted hover:bg-muted/80"
                       }`}
                     >
-                      Yes 😊
+                      {t("checkin.yes")} 😊
                     </button>
                     <button
                       onClick={() => setTalkedToFamily(false)}
@@ -508,14 +679,14 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                           : "bg-muted hover:bg-muted/80"
                       }`}
                     >
-                      No
+                      {t("checkin.no")}
                     </button>
                   </div>
                 </div>
 
                 {/* Loneliness check */}
                 <div className="p-4 rounded-xl border border-border/50 bg-card">
-                  <p className="font-medium mb-3">Feeling lonely?</p>
+                  <p className="font-medium mb-3">{t("checkin.lonelyQuestion")}</p>
                   <div className="grid grid-cols-4 gap-2">
                     {LONELINESS_OPTIONS.map((option) => (
                       <button
@@ -528,7 +699,15 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                         }`}
                       >
                         <span className="text-2xl block mb-1">{option.emoji}</span>
-                        <span className="text-xs">{option.label}</span>
+                        <span className="text-xs">
+                          {option.value === 1
+                            ? t("checkin.lonelyNotAtAll")
+                            : option.value === 2
+                            ? t("checkin.lonelyALittle")
+                            : option.value === 3
+                            ? t("checkin.lonelySomewhat")
+                            : t("checkin.lonelyVery")}
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -537,7 +716,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                 {/* Left home (evening only shown here too for consistency) */}
                 {!isMorning && (
                   <div className="p-4 rounded-xl border border-border/50 bg-card">
-                    <p className="font-medium mb-3">Did you step outside today?</p>
+                    <p className="font-medium mb-3">{t("checkin.outsideQuestion")}</p>
                     <div className="flex gap-3">
                       <button
                         onClick={() => setLeftHome(true)}
@@ -547,7 +726,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                             : "bg-muted hover:bg-muted/80"
                         }`}
                       >
-                        Yes ☀️
+                        {t("checkin.yes")} ☀️
                       </button>
                       <button
                         onClick={() => setLeftHome(false)}
@@ -557,7 +736,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                             : "bg-muted hover:bg-muted/80"
                         }`}
                       >
-                        No
+                        {t("checkin.no")}
                       </button>
                     </div>
                   </div>
@@ -572,7 +751,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
               <div className="text-center mb-6">
                 <Pill className="h-12 w-12 text-green-500 mx-auto mb-2" />
                 <h3 className="text-lg font-semibold">
-                  {isMorning ? "Morning medications?" : "Evening medications?"}
+                  {isMorning ? t("checkin.morningMedsQuestion") : t("checkin.eveningMedsQuestion")}
                 </h3>
               </div>
 
@@ -586,7 +765,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                   }`}
                 >
                   <Check className={`h-10 w-10 mx-auto mb-2 ${medsTaken === true ? "text-green-500" : "text-muted-foreground"}`} />
-                  <p className="font-medium text-lg">Yes</p>
+                  <p className="font-medium text-lg">{t("checkin.yes")}</p>
                 </button>
                 <button
                   onClick={() => setMedsTaken(false)}
@@ -597,7 +776,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                   }`}
                 >
                   <span className={`text-3xl block mb-2 ${medsTaken === false ? "" : "opacity-50"}`}>⏳</span>
-                  <p className="font-medium text-lg">Not yet</p>
+                  <p className="font-medium text-lg">{t("checkin.notYet")}</p>
                 </button>
               </div>
             </div>
@@ -609,12 +788,12 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
               {isMorning ? (
                 <>
                   <div className="text-center mb-6">
-                    <h3 className="text-lg font-semibold">Any notes for today?</h3>
-                    <p className="text-sm text-muted-foreground">Optional - add any thoughts</p>
+                    <h3 className="text-lg font-semibold">{t("checkin.notesToday")}</h3>
+                    <p className="text-sm text-muted-foreground">{t("checkin.notesTodaySubtitle")}</p>
                   </div>
                   <textarea
                     className="w-full h-32 p-4 rounded-xl border border-border/50 bg-background resize-none text-base"
-                    placeholder="How are you feeling today?"
+                    placeholder={t("checkin.notesTodayPlaceholder")}
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                   />
@@ -624,15 +803,15 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                   <div className="text-center mb-6">
                     <Footprints className="h-12 w-12 text-green-500 mx-auto mb-2" />
                     <h3 className="text-lg font-semibold">
-                      {language === "hi" ? "कदमों की गिनती" : "Steps Count"}
+                      {t("checkin.stepsCount")}
                     </h3>
                     <p className="text-sm text-muted-foreground">
-                      {language === "hi" ? "आज के कदमों की संख्या दर्ज करें" : "Enter your steps count for today"}
+                      {t("checkin.enterSteps")}
                     </p>
                   </div>
 
                   <div className="space-y-2">
-                    <Label>{language === "hi" ? "कदमों की गिनती" : "Steps Count"}</Label>
+                    <Label>{t("checkin.stepsCount")}</Label>
                     <Input
                       type="number"
                       placeholder="5000"
@@ -641,7 +820,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
                       className="text-center text-xl"
                     />
                     <p className="text-xs text-muted-foreground text-center">
-                      {language === "hi" ? "कदम" : "steps"}
+                      {t("checkin.steps")}
                     </p>
                   </div>
                 </>
@@ -653,12 +832,12 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
           {step === 6 && !isMorning && (
             <div className="space-y-6 animate-fade-in">
               <div className="text-center mb-6">
-                <h3 className="text-lg font-semibold">Any notes about your day?</h3>
-                <p className="text-sm text-muted-foreground">Optional - reflect on your day</p>
+                <h3 className="text-lg font-semibold">{t("checkin.notesDay")}</h3>
+                <p className="text-sm text-muted-foreground">{t("checkin.notesDaySubtitle")}</p>
               </div>
               <textarea
                 className="w-full h-32 p-4 rounded-xl border border-border/50 bg-background resize-none text-base"
-                placeholder="How was your day?"
+                placeholder={t("checkin.notesDayPlaceholder")}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
               />
@@ -671,7 +850,7 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
           {step > 1 && (
             <Button variant="outline" onClick={handleBack} className="gap-2">
               <ArrowLeft className="h-4 w-4" />
-              Back
+              {t("checkin.back")}
             </Button>
           )}
           <Button 
@@ -682,11 +861,11 @@ export const UnifiedCheckin = ({ isOpen, onClose, type = "auto", initialShortcut
             {step === totalSteps ? (
               <>
                 <Check className="h-4 w-4" />
-                Complete
+                {t("checkin.complete")}
               </>
             ) : (
               <>
-                {canProceed() ? "Next" : "Skip"}
+                {canProceed() ? t("checkin.next") : t("common.skip")}
                 <ArrowRight className="h-4 w-4" />
               </>
             )}

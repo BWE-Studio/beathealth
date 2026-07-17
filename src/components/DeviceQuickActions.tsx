@@ -13,6 +13,7 @@ import { CameraPPGMeasurement } from "./CameraPPGMeasurement";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { haptic } from "@/lib/haptics";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface DeviceReading {
   systolic?: number;
@@ -24,6 +25,7 @@ interface DeviceReading {
 }
 
 export const DeviceQuickActions = () => {
+  const { t } = useLanguage();
   const [deviceCaptureOpen, setDeviceCaptureOpen] = useState(false);
   const [deviceType, setDeviceType] = useState<"bp_monitor" | "glucose_meter" | "any">("any");
   const [ppgOpen, setPpgOpen] = useState(false);
@@ -38,7 +40,7 @@ export const DeviceQuickActions = () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        toast.error("Please log in first");
+        toast.error(t("deviceCapture.loginFirst"));
         return;
       }
 
@@ -53,7 +55,7 @@ export const DeviceQuickActions = () => {
           source_type: "ocr_capture",
           notes: "Captured via device camera"
         });
-        toast.success(`BP ${reading.systolic}/${reading.diastolic} saved!`);
+        toast.success(t("deviceCapture.bpSaved").replace("{value}", `${reading.systolic}/${reading.diastolic}`));
       }
 
       // Save glucose reading
@@ -66,13 +68,13 @@ export const DeviceQuickActions = () => {
           source_type: "ocr_capture",
           notes: "Captured via device camera"
         });
-        toast.success(`Blood sugar ${reading.glucose} mg/dL saved!`);
+        toast.success(t("deviceCapture.sugarSaved").replace("{value}", String(reading.glucose)));
       }
 
       setDeviceCaptureOpen(false);
     } catch (error) {
       console.error("Error saving reading:", error);
-      toast.error("Failed to save reading");
+      toast.error(t("deviceCapture.saveFailed"));
     }
   };
 
@@ -86,7 +88,7 @@ export const DeviceQuickActions = () => {
         className="gap-2 text-xs rounded-full"
       >
         <Scan className="w-3.5 h-3.5" />
-        Scan BP
+        {t("deviceCapture.scanBp")}
       </Button>
 
       {/* Scan Glucose Meter */}
@@ -97,7 +99,7 @@ export const DeviceQuickActions = () => {
         className="gap-2 text-xs rounded-full"
       >
         <Smartphone className="w-3.5 h-3.5" />
-        Scan Sugar
+        {t("deviceCapture.scanSugar")}
       </Button>
 
       {/* Camera Heart Rate */}
@@ -111,7 +113,7 @@ export const DeviceQuickActions = () => {
         className="gap-2 text-xs rounded-full"
       >
         <Heart className="w-3.5 h-3.5" />
-        Heart Rate
+        {t("deviceCapture.heartRate")}
       </Button>
 
       {/* Smart Device Capture Dialog */}
@@ -120,7 +122,7 @@ export const DeviceQuickActions = () => {
           <DialogHeader className="p-4 pb-0">
             <DialogTitle className="flex items-center gap-2">
               <Camera className="w-5 h-5 text-primary" />
-              Scan Device Screen
+              {t("deviceCapture.scanDeviceScreen")}
             </DialogTitle>
           </DialogHeader>
           <div className="p-4">
@@ -138,7 +140,7 @@ export const DeviceQuickActions = () => {
         isOpen={ppgOpen}
         onClose={() => setPpgOpen(false)}
         onComplete={(hr) => {
-          toast.success(`Heart rate ${hr} bpm recorded!`);
+          toast.success(t("deviceCapture.hrRecorded").replace("{value}", String(hr)));
         }}
       />
     </div>

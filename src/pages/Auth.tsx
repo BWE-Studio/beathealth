@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,6 +11,8 @@ import { toast } from "sonner";
 import { Logo } from "@/components/Logo";
 import { ArrowRight, Loader2, Mail, ArrowLeft, Sparkles } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { hideNativeSplash } from "@/lib/nativeSplash";
+import { useAuth } from "@/hooks/useAuth";
 import { z } from "zod";
 
 // Validation schemas for authentication inputs
@@ -24,20 +26,66 @@ const passwordSchema = z.string()
   .min(8, "Password must be at least 8 characters")
   .max(100, "Password must be less than 100 characters");
 
-type AuthMode = "select" | "email" | "magic-link" | "reset-password";
+type AuthMode = "select" | "email" | "magic-link" | "reset-password" | "update-password";
+type RecoverySessionStatus = "idle" | "checking" | "ready" | "missing";
 
 const Auth = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { language } = useLanguage();
-  const [authMode, setAuthMode] = useState<AuthMode>("select");
+  const { isAuthenticated } = useAuth();
+  const isUpdatePasswordMode = searchParams.get("mode") === "update-password";
+  const [authMode, setAuthMode] = useState<AuthMode>(
+    isUpdatePasswordMode ? "update-password" : "select"
+  );
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [confirmPasswordError, setConfirmPasswordError] = useState<string | null>(null);
   const [magicLinkSent, setMagicLinkSent] = useState(false);
   const [resetSent, setResetSent] = useState(false);
+  const [signUpConfirmationSent, setSignUpConfirmationSent] = useState(false);
+  const [pendingPostAuthRedirect, setPendingPostAuthRedirect] = useState(false);
+  const [recoverySessionStatus, setRecoverySessionStatus] = useState<RecoverySessionStatus>(
+    isUpdatePasswordMode ? "checking" : "idle"
+  );
+
+  useEffect(() => {
+    hideNativeSplash();
+  }, []);
+
+  useEffect(() => {
+    if (!isUpdatePasswordMode) return;
+
+    let cancelled = false;
+    setAuthMode("update-password");
+    setRecoverySessionStatus("checking");
+
+    const verifyRecoverySession = async () => {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (cancelled) return;
+
+      setRecoverySessionStatus(!error && session ? "ready" : "missing");
+    };
+
+    void verifyRecoverySession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isUpdatePasswordMode]);
+
+  useEffect(() => {
+    if (!pendingPostAuthRedirect || !isAuthenticated || isUpdatePasswordMode) return;
+
+    setPendingPostAuthRedirect(false);
+    navigate("/app/home", { replace: true });
+  }, [isAuthenticated, isUpdatePasswordMode, navigate, pendingPostAuthRedirect]);
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,18 +118,29 @@ const Auth = () => {
         });
         if (error) throw error;
         toast.success(language === "hi" ? "स्वागत है!" : "Welcome back!");
-        navigate("/app/home");
+        setPendingPostAuthRedirect(true);
       } else {
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           email: emailValidation.data,
           password: passwordValidation.data,
           options: { emailRedirectTo: getAuthRedirectUrl("/app/home") },
         });
         if (error) throw error;
-        toast.success(language === "hi" ? "खाता बन गया!" : "Account created! Logging you in...");
-        navigate("/app/home");
+
+        if (data.session) {
+          toast.success(language === "hi" ? "खाता बन गया! लॉगिन हो रहा है..." : "Account created! Logging you in...");
+          setPendingPostAuthRedirect(true);
+        } else {
+          setSignUpConfirmationSent(true);
+          toast.success(
+            language === "hi"
+              ? "खाता बन गया! पुष्टि के लिए अपना ईमेल देखें।"
+              : "Account created! Check your email to confirm it."
+          );
+        }
       }
     } catch (error: unknown) {
+      setPendingPostAuthRedirect(false);
       const message = error instanceof Error ? error.message : language === "hi" ? "प्रमाणीकरण विफल": "Authentication failed";
       toast.error(message);
     } finally {
@@ -140,6 +199,60 @@ const Auth = () => {
       toast.success(language === "hi" ? "रीसेट लिंक भेजा गया!" : "Reset link sent! Check your email.");
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : (language === "hi" ? "रीसेट लिंक भेजने में विफल" : "Failed to send reset link")
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdatePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError(null);
+    setConfirmPasswordError(null);
+
+    const passwordValidation = passwordSchema.safeParse(newPassword);
+    if (!passwordValidation.success) {
+      setPasswordError(
+        language === "hi"
+          ? "पासवर्ड कम से कम 8 अक्षरों का होना चाहिए"
+          : passwordValidation.error.errors[0].message
+      );
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setConfirmPasswordError(
+        language === "hi" ? "दोनों पासवर्ड मेल नहीं खाते" : "Passwords do not match"
+      );
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session) {
+        setRecoverySessionStatus("missing");
+        return;
+      }
+
+      const { error } = await supabase.auth.updateUser({
+        password: passwordValidation.data,
+      });
+      if (error) throw error;
+
+      toast.success(
+        language === "hi"
+          ? "आपका पासवर्ड सफलतापूर्वक बदल दिया गया है"
+          : "Your password has been updated successfully"
+      );
+      navigate("/app/home", { replace: true });
+    } catch (error: unknown) {
+      const message = error instanceof Error
+        ? error.message
+        : language === "hi"
+          ? "पासवर्ड बदलने में विफल"
+          : "Failed to update password";
       toast.error(message);
     } finally {
       setLoading(false);
@@ -418,7 +531,132 @@ const Auth = () => {
     </form>
   );
 
-  const renderEmailMode = () => (
+  const renderUpdatePasswordMode = () => (
+    <form onSubmit={handleUpdatePassword} className="space-y-6">
+      {recoverySessionStatus === "checking" && (
+        <div className="flex flex-col items-center gap-3 py-8 text-center">
+          <Loader2 className="w-6 h-6 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">
+            {language === "hi" ? "रीसेट लिंक की पुष्टि हो रही है..." : "Verifying reset link..."}
+          </p>
+        </div>
+      )}
+
+      {recoverySessionStatus === "missing" && (
+        <div className="space-y-4 text-center">
+          <p className="text-sm text-destructive">
+            {language === "hi"
+              ? "यह पासवर्ड रीसेट लिंक अमान्य है या इसकी समय-सीमा समाप्त हो चुकी है। कृपया नया लिंक मांगें।"
+              : "This password reset link is invalid or has expired. Please request a new link."}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={() => {
+              setAuthMode("reset-password");
+              navigate("/auth", { replace: true });
+            }}
+          >
+            {language === "hi" ? "नया रीसेट लिंक मांगें" : "Request a new reset link"}
+          </Button>
+        </div>
+      )}
+
+      {recoverySessionStatus === "ready" && (
+        <>
+          <div className="space-y-2">
+            <Label htmlFor="new-password">
+              {language === "hi" ? "नया पासवर्ड" : "New Password"}
+            </Label>
+            <Input
+              id="new-password"
+              type="password"
+              autoComplete="new-password"
+              placeholder="••••••••"
+              value={newPassword}
+              onChange={(e) => {
+                setNewPassword(e.target.value);
+                setPasswordError(null);
+              }}
+              required
+              className={`h-12 ${passwordError ? "border-destructive" : ""}`}
+            />
+            {passwordError && (
+              <p className="text-sm text-destructive">{passwordError}</p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="confirm-password">
+              {language === "hi" ? "नए पासवर्ड की पुष्टि करें" : "Confirm New Password"}
+            </Label>
+            <Input
+              id="confirm-password"
+              type="password"
+              autoComplete="new-password"
+              placeholder="••••••••"
+              value={confirmPassword}
+              onChange={(e) => {
+                setConfirmPassword(e.target.value);
+                setConfirmPasswordError(null);
+              }}
+              required
+              className={`h-12 ${confirmPasswordError ? "border-destructive" : ""}`}
+            />
+            {confirmPasswordError && (
+              <p className="text-sm text-destructive">{confirmPasswordError}</p>
+            )}
+          </div>
+
+          <Button
+            type="submit"
+            className="w-full h-12 text-lg font-medium bg-gradient-to-r from-primary to-primary/90"
+            disabled={loading || !newPassword || !confirmPassword}
+          >
+            {loading ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <span className="flex items-center gap-2">
+                {language === "hi" ? "पासवर्ड बदलें" : "Update Password"}
+                <ArrowRight className="w-4 h-4" />
+              </span>
+            )}
+          </Button>
+        </>
+      )}
+    </form>
+  );
+
+  const renderEmailMode = () => signUpConfirmationSent ? (
+    <div className="space-y-6 text-center">
+      <div className="w-16 h-16 mx-auto bg-primary/10 rounded-full flex items-center justify-center">
+        <Mail className="w-8 h-8 text-primary" />
+      </div>
+      <div className="space-y-2">
+        <h3 className="text-xl font-semibold">
+          {language === "hi" ? "अपना ईमेल जांचें" : "Check your email"}
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          {language === "hi"
+            ? `हमने ${email} पर पुष्टि लिंक भेजा है। लिंक खोलने के बाद Beat आपको अपने आप लॉगिन कर देगा।`
+            : `We sent a confirmation link to ${email}. Open it and Beat will sign you in automatically.`}
+        </p>
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        className="w-full"
+        onClick={() => {
+          setSignUpConfirmationSent(false);
+          setIsLogin(true);
+          setPassword("");
+        }}
+      >
+        {language === "hi" ? "साइन इन पर वापस जाएं" : "Back to sign in"}
+      </Button>
+    </div>
+  ) : (
     <form onSubmit={handleEmailAuth} className="space-y-6">
       <Button
         type="button"
@@ -487,9 +725,9 @@ const Auth = () => {
 
       <Button
         className="w-full h-12 text-lg font-medium bg-gradient-to-r from-primary to-primary/90"
-        disabled={loading}
+        disabled={loading || pendingPostAuthRedirect}
       >
-        {loading ? (
+        {loading || pendingPostAuthRedirect ? (
           <Loader2 className="w-5 h-5 animate-spin" />
         ) : (
           <span className="flex items-center gap-2">
@@ -532,6 +770,8 @@ const Auth = () => {
               ? (language === "hi" ? "मैजिक लिंक से लॉगिन" : "Magic Link Sign In")
               : authMode === "reset-password"
               ? (language === "hi" ? "पासवर्ड रीसेट" : "Reset Password")
+              : authMode === "update-password"
+              ? (language === "hi" ? "नया पासवर्ड बनाएं" : "Create New Password")
               : (isLogin 
                 ? (language === "hi" ? "वापस स्वागत है" : "Welcome Back")
                 : (language === "hi" ? "बीट से जुड़ें" : "Join Beat"))}
@@ -547,6 +787,7 @@ const Auth = () => {
           {authMode === "select" && renderSelectMode()}
           {authMode === "magic-link" && renderMagicLinkMode()}
           {authMode === "reset-password" && renderResetPasswordMode()}
+          {authMode === "update-password" && renderUpdatePasswordMode()}
           {authMode === "email" && renderEmailMode()}
         </Card>
       </div>
